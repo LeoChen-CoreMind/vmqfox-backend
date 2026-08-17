@@ -128,8 +128,28 @@ final class QrcodeBatch
      */
     public static function normalizeDecisions(mixed $decisions, array $items): array
     {
-        if (!is_array($decisions) || count($decisions) !== count($items)) {
+        if (!is_array($decisions)) {
             throw new InvalidArgumentException('姣忎釜浜岀淮鐮佸繀椤绘彁浜や竴涓喅绛?');
+        }
+
+        if (array_is_list($decisions)) {
+            $byClientId = [];
+            foreach ($decisions as $decision) {
+                if (!is_array($decision)) {
+                    throw new InvalidArgumentException('Invalid QR batch decision');
+                }
+                $clientId = trim((string) ($decision['client_id'] ?? ''));
+                if ($clientId === '' || isset($byClientId[$clientId])) {
+                    throw new InvalidArgumentException('Invalid or duplicate decision client ID');
+                }
+                unset($decision['client_id']);
+                $byClientId[$clientId] = $decision;
+            }
+            $decisions = $byClientId;
+        }
+
+        if (count($decisions) !== count($items)) {
+            throw new InvalidArgumentException('QR batch decisions are incomplete');
         }
 
         $normalized = [];

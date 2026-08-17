@@ -49,6 +49,8 @@ Route::group('api', function () {
     Route::get('qrcode/alipay', 'api/Qrcode/alipay');
     Route::post('qrcode/wechat', 'api/Qrcode/addWechat');
     Route::post('qrcode/alipay', 'api/Qrcode/addAlipay');
+    Route::post('qrcode/batch/preview', 'api/Qrcode/batchPreview');
+    Route::post('qrcode/batch/commit', 'api/Qrcode/batchCommit');
     Route::delete('qrcode/wechat/:id', 'api/Qrcode/deleteWechat');
     Route::delete('qrcode/alipay/:id', 'api/Qrcode/deleteAlipay');
     Route::post('qrcode/delete', 'api/Qrcode/deleteByRequest');
