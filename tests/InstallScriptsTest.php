@@ -17,14 +17,21 @@ test('host installer scripts use strict mode and explicit deployment paths', fun
     $baota = file_get_contents($root . '/scripts/install-baota.sh');
     assertSameValue(true, str_contains($docker, 'docker compose --env-file'));
     assertSameValue(true, str_contains($docker, 'replace-with-*'));
-    assertSameValue(true, str_contains($baota, 'VMQ_PHP_BIN'));
-    assertSameValue(true, str_contains($baota, '/www/server/php/*/bin/php'));
-    assertSameValue(true, str_contains($baota, 'Select the PHP binary'));
-    assertSameValue(true, str_contains($baota, 'VMQ_PHP_VERSION'));
-    assertSameValue(true, str_contains($baota, 'explicit_version'));
+    assertSameValue(true, str_contains($baota, 'command -v php'));
+    assertSameValue(true, str_contains($baota, 'Using the default PHP'));
+    assertSameValue(false, str_contains($baota, '/www/server/php/*/bin/php'));
+    assertSameValue(false, str_contains($baota, 'Select the PHP binary'));
+    assertSameValue(false, str_contains($baota, 'VMQ_PHP_VERSION'));
+    assertSameValue(false, str_contains($baota, 'VMQ_PHP_BIN'));
+    assertSameValue(false, str_contains($baota, 'PHP_CANDIDATES'));
+    assertSameValue(false, str_contains($baota, 'read -r'));
     assertSameValue(false, str_contains($baota, 'php8.2-'));
     assertSameValue(true, str_contains($baota, 'zbar-tools'));
     assertSameValue(true, str_contains($baota, 'tesseract-ocr'));
+
+    $webInstaller = file_get_contents($root . '/public/install/index.php');
+    assertSameValue(false, str_contains($webInstaller, 'php-binary'));
+    assertSameValue(false, str_contains($webInstaller, 'PHP 版本选择'));
 });
 
 test('PHP installer never invokes host package managers', function (): void {

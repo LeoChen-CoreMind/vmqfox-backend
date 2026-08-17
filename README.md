@@ -22,7 +22,7 @@ bash scripts/install.sh --mode docker
 bash scripts/install.sh --mode baota
 ```
 
-宝塔脚本会扫描当前 CLI PHP 和 `/www/server/php/*/bin/php`，列出所有满足 `PHP >= 8.2` 的候选版本，并在终端让你选择网站实际使用的 PHP。自动化部署可用 `VMQ_PHP_BIN=/www/server/php/你的版本/bin/php` 或 `VMQ_PHP_VERSION=8.3` 指定；非交互执行才会选择扫描到的最高版本。脚本完成后必须在宝塔重启网站实际使用的 PHP-FPM 服务，然后访问 `https://你的域名/install/`。如果 `zbarimg` 或 Tesseract 仍显示“未检测到”，先从对应 PHP 版本的禁用函数中移除 `proc_open`，保存并重启 PHP；未移除并重启前网页进程无法检测这些命令。
+宝塔脚本直接使用终端当前默认的 `php`，不扫描或询问 PHP 版本。执行前请在宝塔把默认 PHP CLI 和网站 PHP 都设置为 `PHP >= 8.2`；脚本检测到默认版本过低时会停止，不会自动切换版本。脚本完成后必须重启网站实际使用的 PHP-FPM 服务，然后访问 `https://你的域名/install/`。网页安装器始终运行在该网站当前配置的 PHP-FPM 下，不提供 PHP 版本选择。如果 `zbarimg` 或 Tesseract 仍显示“未检测到”，先从对应 PHP 版本的禁用函数中移除 `proc_open`，保存并重启 PHP；未移除并重启前网页进程无法检测这些命令。
 
 宝塔脚本会预创建仅网站用户可写的 `.env` 占位文件。手动部署遇到 `.env.tmp` 或 `.env` 权限错误时，在项目根目录执行 `install -m 600 -o www -g www /dev/null .env`，然后刷新 `/install/`；不要把整个项目根目录设置为可写。
 
@@ -248,7 +248,7 @@ server {
     location ~ \.php$ {
         include fastcgi_params;
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-        # Replace X.Y with the PHP-FPM socket selected by the installer scan.
+        # Replace X.Y with the PHP-FPM version currently configured for this website.
         fastcgi_pass unix:/run/php/phpX.Y-fpm.sock;
     }
 
