@@ -2,7 +2,7 @@
 
 VMQFox 的 PHP / ThinkPHP 8 后端，提供订单、微信/支付宝收款二维码、监控端通知、管理后台兼容接口和 REST 风格 API。
 
-当前版本为 **2.3.2**。本文档按当前代码整理，最后核对日期为 **2026-08-17**。
+当前版本为 **2.3.4**。本文档按当前代码整理，最后核对日期为 **2026-08-17**。
 
 [![PHP](https://img.shields.io/badge/PHP-8.2%20recommended-777BB4?logo=php&logoColor=white)](https://www.php.net/)
 [![ThinkPHP](https://img.shields.io/badge/ThinkPHP-8-brightgreen)](https://www.thinkphp.cn/)
@@ -37,7 +37,10 @@ bash scripts/install.sh --mode baota
 - ZXing-C++、OpenCV、zbarimg 多级二维码解析。
 - Tesseract OCR 辅助识别图片中的金额。
 - 自动识别后允许人工修改二维码金额和内容。
+- 微信和支付宝添加页支持整页拖入或点击追加图片，每个队列最多 20 张，识别并发数为 2。
+- 同支付类型、同金额二维码支持全部替换、逐个确认或全部放弃冲突项。
 - 二维码管理采用服务端 API 分页，不会一次读取全部数据。
+- 二维码管理排序在数据库分页前执行，并分别记忆微信和支付宝的排序方式。
 - 支持二维码启用、关闭、删除和金额修改。
 - 支持订单创建、查询、关闭、删除、异步通知与返回地址。
 - 兼容旧版 APK 推送协议，并推荐使用 KernelSU 监控模块。
@@ -307,6 +310,10 @@ env[QRCODE_TESSERACT_BINARY] = /usr/bin/tesseract
 5. 服务端使用 Tesseract OCR 辅助识别图片中显示的金额。
 6. 将自动识别结果填入表单，用户可以人工修改金额和二维码内容后再保存。
 
+微信和支付宝每次队列最多 20 张图片，识别并发数为 2。两个添加页都支持整页拖入多张图片，拖拽和点击选择共用 20 张总上限。新选择会追加，完全相同的文件会按文件名、大小和最后修改时间自动忽略；自动识别完成后，金额和二维码内容仍可人工修改。
+
+保存前会检查同一支付类型中的同金额记录，也会检查本批新图片之间的同金额项目。发生冲突时可以选择“全部替换”“逐个确认”或“全部放弃冲突项”。替换只更新原记录的二维码内容，不改变原有 ID、金额和启用状态；微信和支付宝之间不会互相判定为重复。
+
 不同二维码图片的密度、中心 Logo、截图缩放、压缩程度和边缘留白不同，因此同一个解码器可能出现“一张能识别、另一张不能识别”。当前实现会尝试多个解码器和图像处理策略，但仍建议上传原图。
 
 提高识别率：
@@ -343,13 +350,13 @@ php -r 'var_dump(function_exists("proc_open"), class_exists("SimpleXMLElement"))
 
 ## 二维码管理和 API 分页
 
-微信与支付宝二维码管理页不会一次加载全部记录。页面通过 API 请求当前页，服务端在数据库中分页查询。
+微信与支付宝二维码管理页不会一次加载全部记录。页面通过 API 请求当前页，服务端先按白名单排序方式在数据库中排序，再执行分页查询。微信和支付宝分别记忆各自的排序方式。
 
 示例：
 
 ```http
-GET /api/qrcode/wechat?page=1&limit=12
-GET /api/qrcode/alipay?page=2&limit=24
+GET /api/qrcode/wechat?page=1&limit=12&sort=amount_asc
+GET /api/qrcode/alipay?page=2&limit=24&sort=amount_desc
 ```
 
 `limit` 支持 `12`、`24`、`48`。响应数据包含：
@@ -359,9 +366,12 @@ GET /api/qrcode/alipay?page=2&limit=24
   "total": 120,
   "items": [],
   "page": 1,
-  "limit": 12
+  "limit": 12,
+  "sort": "amount_asc"
 }
 ```
+
+`sort` 支持 `newest`、`oldest`、`amount_asc`、`amount_desc`、`enabled_first` 和 `disabled_first`。未知值会回退到 `newest`，不会作为 SQL 片段执行。
 
 二维码状态约定：
 
@@ -416,6 +426,8 @@ KSU 模块和 APK 监控端的目标与原理相同：监听设备上的收款�
 | POST | `/api/qrcode/parse` | 上传并识别二维码图片 |
 | POST | `/api/qrcode/wechat` | 添加微信二维码 |
 | POST | `/api/qrcode/alipay` | 添加支付宝二维码 |
+| POST | `/api/qrcode/batch/preview` | 预览批量二维码的同金额冲突，不写入数据 |
+| POST | `/api/qrcode/batch/commit` | 按确认结果事务提交整批二维码 |
 | POST | `/api/qrcode/:id/amount` | 人工修改金额 |
 | POST | `/api/qrcode/bind/:id` | 启用或关闭二维码 |
 | DELETE | `/api/qrcode/wechat/:id` | 删除微信二维码 |
@@ -498,6 +510,12 @@ docker compose --env-file .env.docker logs --tail=200 backend mysql
 
 ## 2026-08-17 更新
 
+- 微信和支付宝每次队列最多 20 张图片，识别并发数为 2。
+- 微信和支付宝添加页支持整页拖入多张图片，拖拽和点击选择共用 20 张总上限。
+- 新选择会追加，完全相同的文件会自动忽略，识别后金额和二维码内容仍可人工修改。
+- 同支付类型、同金额会在保存前要求全部替换、逐个确认或全部放弃冲突项。
+- 替换仅更新原记录的二维码内容，不改变 ID、金额和启用状态。
+- 管理页排序由 API 在数据库分页前执行，微信和支付宝分别记忆排序方式。
 - 重做微信/支付宝二维码上传与管理布局。
 - 支持二维码服务端 API 分页，避免一次加载全部记录。
 - 增加自动识别后人工修改金额。

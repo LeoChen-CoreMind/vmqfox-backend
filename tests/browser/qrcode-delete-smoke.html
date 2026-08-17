@@ -4,6 +4,9 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>QR delete smoke test</title>
+    <link rel="stylesheet" href="../../public/layui/css/layui.css">
+    <link rel="stylesheet" href="../../public/css/qrcode-admin.css">
+    <style>body { margin: 24px; }</style>
 </head>
 <body data-smoke="pending">
     <section id="list"></section>
@@ -20,33 +23,44 @@
         QrAdmin.showDependencyHelp = function () {};
         QrAdmin.request = function (options) {
             calls.push(options);
-            if (calls.length === 1) {
-                return Promise.resolve({
-                    total: 1,
-                    page: 1,
-                    limit: 12,
-                    items: [{
-                        id: '17',
-                        price: '1.00',
-                        pay_url: 'https://qr.alipay.com/example',
-                        state: 0
-                    }]
-                });
-            }
             if (options.url === 'index.php/api/qrcode/delete') {
                 return Promise.resolve({});
             }
-            return Promise.resolve({total: 0, page: 1, limit: 12, items: []});
+            var query = new URL(options.url, location.href).searchParams;
+            return Promise.resolve({
+                total: 1,
+                page: Number(query.get('page')) || 1,
+                limit: Number(query.get('limit')) || 12,
+                sort: query.get('sort') || 'newest',
+                items: [{
+                    id: '17',
+                    price: '1.00',
+                    pay_url: 'https://qr.alipay.com/example',
+                    state: 0
+                }]
+            });
         };
 
-        QrList.mount({root: '#list', type: 2});
+        var mounted = QrList.mount({root: '#list', type: 2});
         setTimeout(function () {
-            document.querySelector('[data-action="delete"]').click();
+            mounted.getState().page = 2;
+            var sort = document.querySelector('[data-role="sort"]');
+            sort.value = 'amount_desc';
+            sort.dispatchEvent(new Event('change', {bubbles: true}));
             setTimeout(function () {
-                var deletion = calls[1] || {};
-                var passed = deletion.url === 'index.php/api/qrcode/delete' &&
-                    deletion.method === 'POST' && deletion.data && deletion.data.id === '17';
-                document.body.setAttribute('data-smoke', passed ? 'pass' : 'fail');
+                var sortRequest = calls.filter(function (call) {
+                    return /sort=amount_desc/.test(call.url || '');
+                }).pop();
+                document.querySelector('[data-action="delete"]').click();
+                setTimeout(function () {
+                    var deletion = calls.filter(function (call) {
+                        return call.url === 'index.php/api/qrcode/delete';
+                    })[0] || {};
+                    var passed = sortRequest && /page=1/.test(sortRequest.url) &&
+                        mounted.getState().sort === 'amount_desc' &&
+                        deletion.method === 'POST' && deletion.data && deletion.data.id === '17';
+                    document.body.setAttribute('data-smoke', passed ? 'pass' : 'fail');
+                }, 0);
             }, 0);
         }, 0);
     </script>

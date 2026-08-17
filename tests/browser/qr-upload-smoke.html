@@ -13,51 +13,211 @@
 </head>
 <body data-smoke="pending">
     <section id="wechat"></section>
-    <section id="dependencies" hidden></section>
+    <section id="alipay"></section>
+    <script>
+        var ajaxCalls = [];
+        var notices = [];
+        var conflictButtons = [];
+        var parseCount = 0;
+        var scenario = new URL(location.href).searchParams.get('scenario') || 'success';
+        var lastPreview = null;
+        var commitAttempt = 0;
+        var conflictOpenCount = 0;
+        var staleQueueCount = 0;
+
+        window.jQuery = {
+            ajax: function (options) {
+                ajaxCalls.push(options);
+                setTimeout(function () {
+                    if (/\/parse$/.test(options.url)) {
+                        parseCount++;
+                        options.success({code: 200, data: {
+                            url: 'wxp://smoke/' + parseCount,
+                            amount: parseCount + '.00',
+                            amount_status: 'detected',
+                            decoder: 'smoke'
+                        }});
+                        return;
+                    }
+                    if (/\/batch\/preview$/.test(options.url)) {
+                        if (scenario === 'failure') {
+                            options.success({code: 500, msg: 'forced preview failure'});
+                            return;
+                        }
+                        var groups = {};
+                        var previewItems = options.data.items.map(function (item) {
+                            var price = Number(item.price).toFixed(2);
+                            (groups[price] || (groups[price] = [])).push(item.client_id);
+                            return {
+                                client_id: item.client_id,
+                                pay_url: item.pay_url,
+                                price: price,
+                                existing_id: null
+                            };
+                        });
+                        var batchConflicts = Object.keys(groups).filter(function (price) {
+                            return groups[price].length > 1;
+                        }).map(function (price) {
+                            return {price: price, client_ids: groups[price]};
+                        });
+                        lastPreview = {
+                            items: previewItems,
+                            database_conflicts: [],
+                            batch_conflicts: batchConflicts,
+                            has_conflicts: batchConflicts.length > 0,
+                            conflict_token: 'a'.repeat(64)
+                        };
+                        options.success({code: 200, data: lastPreview});
+                        return;
+                    }
+                    if (/\/batch\/commit$/.test(options.url)) {
+                        commitAttempt++;
+                        if (scenario === 'stale' && commitAttempt === 1) {
+                            staleQueueCount = mounted.getItems().length;
+                            options.success({code: 409, msg: 'forced stale conflict', data: {preview: lastPreview}});
+                            return;
+                        }
+                        var totals = {inserted: 0, replaced: 0, skipped: 0, failed: 0};
+                        var results = options.data.decisions.map(function (decision) {
+                            if (decision.action === 'skip') {
+                                totals.skipped++;
+                                return {client_id: decision.client_id, status: 'skipped'};
+                            }
+                            totals.inserted++;
+                            return {client_id: decision.client_id, status: 'inserted'};
+                        });
+                        options.success({code: 200, data: {results: results, totals: totals}});
+                        return;
+                    }
+                    options.success({code: 500, msg: 'unexpected smoke request'});
+                }, 0);
+            }
+        };
+        window.layer = {
+            alert: function (message) { notices.push(message); },
+            close: function () {},
+            confirm: function (content, options, yes) { yes(); return 2; },
+            msg: function (message) { notices.push(message); },
+            open: function (options) {
+                conflictOpenCount++;
+                conflictButtons = options.btn.slice();
+                options.yes();
+                return 1;
+            }
+        };
+    </script>
     <script src="../../public/js/qrcode-admin.js"></script>
     <script>
-        QrAdmin.mountUpload({root: '#wechat', type: 1});
-        document.querySelector('#wechat [data-role="items"]').innerHTML = QrAdmin.uploadItemsHtml([
-            {
-                file: {name: '微信收款码_自动识别成功.jpg'},
-                preview: '../../vendor/khanamiryan/qrcode-detector-decoder/tests/qrcodes/test.png',
-                url: 'wxp://recognized/example',
-                amount: '1.00',
-                amountStatus: 'detected',
-                status: 'ready',
-                decoder: 'opencv'
-            },
-            {
-                file: {name: '带头像和复杂背景的二维码图片.jpg'},
-                preview: '../../vendor/khanamiryan/qrcode-detector-decoder/tests/qrcodes/hello_world.png',
-                url: '',
-                amount: '',
-                amountStatus: 'manual',
-                status: 'error',
-                error: '自动识别失败，可手工粘贴收款链接后继续保存'
+        function files(prefix, count, type) {
+            var transfer = new DataTransfer();
+            var png = Uint8Array.from(atob('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Z4x8AAAAASUVORK5CYII='), function (char) {
+                return char.charCodeAt(0);
+            });
+            for (var i = 0; i < count; i++) {
+                transfer.items.add(new File([png], prefix + '-' + i + '.png', {
+                    type: type || 'image/png', lastModified: i + 1
+                }));
             }
-        ]);
-        document.querySelector('#wechat [data-role="summary"]').textContent = '2 个文件';
-        document.querySelector('#dependencies').innerHTML = QrAdmin.dependencyHelpHtml({
-            proc_open: false,
-            temp_dir_writable: true,
-            simplexml: true
-        });
+            return transfer;
+        }
 
-        var roots = document.querySelectorAll('.qr-page-toolbar');
-        var selectors = document.querySelectorAll('[data-action="select"]');
-        var saves = document.querySelectorAll('[data-action="save"]');
-        var cards = document.querySelectorAll('.qr-card-grid .qr-upload-card');
-        var urlFields = document.querySelectorAll('.qr-upload-card [data-field="url"]');
-        var warning = document.querySelectorAll('.qr-dependency-warning');
-        var blockedTools = document.querySelectorAll('.qr-dependency-grid .is-missing');
-        document.body.setAttribute(
-            'data-smoke',
-            roots.length === 1 && selectors.length === 1 && saves.length === 1 &&
-                cards.length === 2 && urlFields.length === 2 &&
-                warning.length === 1 && blockedTools.length >= 3 ? 'pass' : 'fail'
-        );
-        document.body.setAttribute('data-viewport-width', document.documentElement.clientWidth);
+        function selectFiles(input, transfer) {
+            Object.defineProperty(input, 'files', {configurable: true, value: transfer.files});
+            input.dispatchEvent(new Event('change', {bubbles: true}));
+        }
+
+        function waitFor(predicate, timeout) {
+            var started = Date.now();
+            return new Promise(function (resolve, reject) {
+                function check() {
+                    if (predicate()) { resolve(); return; }
+                    if (Date.now() - started > timeout) { reject(new Error('smoke timeout')); return; }
+                    setTimeout(check, 10);
+                }
+                check();
+            });
+        }
+
+        function finish(passed, error) {
+            document.body.setAttribute('data-smoke', passed ? 'pass' : 'fail');
+            document.body.setAttribute('data-viewport-width', document.documentElement.clientWidth);
+            if (error) { document.body.setAttribute('data-error', error.message || String(error)); }
+        }
+
+        var root = document.querySelector('#wechat');
+        var mounted = QrAdmin.mountUpload({root: root, type: 1});
+        var input = root.querySelector('[data-role="file"]');
+        var first = files('first', 3);
+        var second = files('second', 2);
+        selectFiles(input, first);
+        selectFiles(input, second);
+        var appended = mounted.getItems().length === 5;
+
+        var mixed = files('drop', 15);
+        mixed.items.add(new File(['notes'], 'notes.txt', {type: 'text/plain'}));
+        root.dispatchEvent(new DragEvent('dragenter', {dataTransfer: mixed, bubbles: true, cancelable: true}));
+        var dragShown = root.classList.contains('is-dragging');
+        root.dispatchEvent(new DragEvent('drop', {dataTransfer: mixed, bubbles: true, cancelable: true}));
+        var dragCleared = !root.classList.contains('is-dragging');
+        var cappedAtTwenty = mounted.getItems().length === 20;
+
+        selectFiles(input, files('overflow', 1));
+        var overflowRejected = mounted.getItems().length === 20;
+
+        waitFor(function () {
+            return mounted.getItems().length === 20 && mounted.getItems().every(function (item) {
+                return item.status === 'ready';
+            });
+        }, 5000).then(function () {
+            return new Promise(function (resolve) { setTimeout(resolve, 300); });
+        }).then(function () {
+            var cards = root.querySelectorAll('.qr-upload-card');
+            var firstUrl = cards[0].querySelector('[data-field="url"]');
+            var firstAmount = cards[0].querySelector('[data-field="amount"]');
+            var secondAmount = cards[1].querySelector('[data-field="amount"]');
+            firstUrl.value = 'wxp://manual-edited';
+            firstUrl.dispatchEvent(new Event('input', {bubbles: true}));
+            firstAmount.value = '9.99';
+            firstAmount.dispatchEvent(new Event('input', {bubbles: true}));
+            secondAmount.value = '9.99';
+            secondAmount.dispatchEvent(new Event('input', {bubbles: true}));
+            root.querySelector('[data-action="save"]').click();
+            return waitFor(function () {
+                if (scenario === 'failure') {
+                    return notices.indexOf('forced preview failure') !== -1;
+                }
+                var expected = scenario === 'stale' ? 2 : 1;
+                return ajaxCalls.filter(function (call) { return /\/batch\/commit$/.test(call.url); }).length >= expected &&
+                    mounted.getItems().length === 0;
+            }, 5000);
+        }).then(function () {
+            var previewCall = ajaxCalls.filter(function (call) { return /\/batch\/preview$/.test(call.url); })[0];
+            var commitCalls = ajaxCalls.filter(function (call) { return /\/batch\/commit$/.test(call.url); });
+            var legacyAdds = ajaxCalls.filter(function (call) { return /\/(wechat|alipay)$/.test(call.url); });
+            var editable = previewCall && previewCall.data.items[0].pay_url === 'wxp://manual-edited' &&
+                previewCall.data.items[0].price === '9.99';
+            var conflictSelectable = conflictButtons.join('|') === '全部替换|逐个确认|全部放弃冲突项';
+            var retainedOnFailure = scenario !== 'failure' ||
+                (mounted.getItems().length === 20 && mounted.getItems()[0].url === 'wxp://manual-edited' &&
+                    mounted.getItems()[0].amount === '9.99' && commitCalls.length === 0);
+            var staleRetried = scenario !== 'stale' ||
+                (staleQueueCount === 20 && commitCalls.length === 2 && conflictOpenCount >= 2);
+            var expectedCommitCount = scenario === 'failure' ? 0 : (scenario === 'stale' ? 2 : 1);
+            mounted.destroy();
+            var afterDestroy = new DragEvent('dragenter', {
+                dataTransfer: files('after-destroy', 1), bubbles: true, cancelable: true
+            });
+            var notIntercepted = root.dispatchEvent(afterDestroy) && !root.classList.contains('is-dragging');
+
+            var alipay = QrAdmin.mountUpload({root: '#alipay', type: 2});
+            var sharedUploader = document.querySelector('#alipay h2').textContent === '支付宝收款码';
+            alipay.destroy();
+            finish(appended && dragShown && dragCleared && cappedAtTwenty && overflowRejected &&
+                editable && retainedOnFailure && staleRetried && commitCalls.length === expectedCommitCount &&
+                (scenario === 'failure' || conflictSelectable) && legacyAdds.length === 0 &&
+                notIntercepted && sharedUploader && notices.some(function (text) { return /非图片/.test(text); }) &&
+                notices.some(function (text) { return /最多可添加 20/.test(text); }));
+        }).catch(function (error) { finish(false, error); });
     </script>
 </body>
 </html>
