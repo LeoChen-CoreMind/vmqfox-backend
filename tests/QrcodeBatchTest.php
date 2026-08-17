@@ -93,6 +93,11 @@ test('normalizes decisions and commits a validated plan', function (): void {
         'replace-1' => ['action' => 'replace', 'target_id' => 8],
         'skip-1' => ['action' => 'skip'],
     ], $items);
+    assertSameValue($decisions, QrcodeBatch::normalizeDecisions([
+        ['client_id' => 'insert-1', 'action' => 'insert'],
+        ['client_id' => 'replace-1', 'action' => 'replace', 'target_id' => 8],
+        ['client_id' => 'skip-1', 'action' => 'skip'],
+    ], $items));
     assertSameValue([
         ['client_id' => 'insert-1', 'action' => 'insert', 'target_id' => null, 'pay_url' => 'wxp://one', 'price' => '10.00'],
         ['client_id' => 'replace-1', 'action' => 'replace', 'target_id' => 8, 'pay_url' => 'wxp://two', 'price' => '20.00'],
