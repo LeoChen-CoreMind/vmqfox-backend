@@ -48,6 +48,11 @@ final class QrcodeBatch
      */
     public static function preview(int $type, array $items, array $existingRows): array
     {
+        if (QrcodeInput::normalizeType($type) === null) {
+            throw new InvalidArgumentException('Invalid payment type');
+        }
+        $items = self::normalizeItems($items);
+
         $existingByPrice = [];
         foreach ($existingRows as $row) {
             if (!is_array($row) || (int) ($row['type'] ?? 0) !== $type) {

@@ -18,6 +18,29 @@ test('builds database and upload-only conflict groups', function (): void {
     assertSameValue(true, $preview['has_conflicts']);
 });
 
+test('preview validates payment type and normalizes raw item prices', function (): void {
+    try {
+        QrcodeBatch::preview(3, [
+            ['client_id' => 'local-1', 'pay_url' => 'wxp://one', 'price' => '10'],
+        ], []);
+    } catch (InvalidArgumentException) {
+        $preview = QrcodeBatch::preview(1, [
+            ['client_id' => 'local-1', 'pay_url' => 'wxp://one', 'price' => '10'],
+            ['client_id' => 'local-2', 'pay_url' => 'wxp://two', 'price' => '10.00'],
+        ], [
+            ['id' => 7, 'type' => 1, 'pay_url' => 'wxp://existing', 'price' => '10', 'state' => 0],
+        ]);
+
+        assertSameValue([['price' => '10.00', 'client_ids' => ['local-1', 'local-2']]], $preview['batch_conflicts']);
+        assertSameValue('7', $preview['items'][0]['existing_id']);
+        assertSameValue('7', $preview['items'][1]['existing_id']);
+        assertSameValue(['10.00', '10.00'], array_column($preview['items'], 'price'));
+        return;
+    }
+
+    throw new RuntimeException('expected invalid payment type to be rejected');
+});
+
 test('rejects stale conflict tokens and illegal replacement targets', function (): void {
     $items = QrcodeBatch::normalizeItems([
         ['client_id' => 'local-1', 'pay_url' => 'wxp://one', 'price' => '10'],
