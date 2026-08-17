@@ -42,6 +42,18 @@ test('Docker and Linux installation include BCMath', function (): void {
     assertSameValue(true, str_contains($readme, 'php-bcmath'));
 });
 
+test('Docker build supports an explicit Alpine package mirror', function (): void {
+    $root = dirname(__DIR__);
+    $dockerfile = file_get_contents($root . '/Dockerfile');
+    $compose = file_get_contents($root . '/docker-compose.yml');
+    $example = file_get_contents($root . '/.env.docker.example');
+
+    assertSameValue(true, str_contains($dockerfile, 'ARG APK_MIRROR='));
+    assertSameValue(true, str_contains($dockerfile, '${APK_MIRROR}'));
+    assertSameValue(true, str_contains($compose, 'VMQ_APK_MIRROR'));
+    assertSameValue(true, str_contains($example, 'VMQ_APK_MIRROR='));
+});
+
 test('public release removes bundled clients and unsafe payment demos', function (): void {
     $root = dirname(__DIR__);
     $monitorPage = file_get_contents($root . '/public/admin/jk.html');

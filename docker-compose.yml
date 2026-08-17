@@ -18,6 +18,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        APK_MIRROR: "${VMQ_APK_MIRROR:-https://dl-cdn.alpinelinux.org/alpine}"
     image: vmqfox-backend:local
     container_name: vmqfox-backend
     ports:

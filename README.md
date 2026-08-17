@@ -128,6 +128,10 @@ docker compose --env-file .env.docker logs --tail=200 mysql
 
 Docker 镜像构建时会安装 zbarimg、OpenCV、ZXing-C++ Python 绑定、Tesseract 和 PHP XML 扩展。MySQL 与 Redis 默认只在 Compose 内部网络开放，不映射宿主机端口。
 
+国内服务器构建 Alpine 依赖较慢时，可在 `.env.docker` 设置 `VMQ_APK_MIRROR=https://mirrors.aliyun.com/alpine`。该参数只替换 APK 下载源，不改变依赖版本。Docker Hub 加速器如果提示 MySQL 镜像层不存在，应更换可用加速器或从其他可信镜像源拉取同一 `mysql:5.7` 镜像并重新标记，不要修改数据库主版本。
+
+完整 Compose 会额外运行 MySQL、Redis、前端和后端。同一服务器还保留宝塔、宿主机 MySQL/Redis 时建议至少 4 GB 内存；1.6 GB 等低内存主机请只保留一种部署方式，否则首次初始化可能导致系统长时间换页和站点超时。
+
 停止服务：
 
 ```bash

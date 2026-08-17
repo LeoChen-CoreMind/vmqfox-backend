@@ -20,9 +20,11 @@ FROM php:8.2-fpm-alpine3.22 AS runtime
 
 ARG TZ=Asia/Shanghai
 ENV TZ=${TZ}
+ARG APK_MIRROR=https://dl-cdn.alpinelinux.org/alpine
 
 # Install required system libs and PHP extensions
 RUN set -eux; \
+    sed -i "s#https://dl-cdn.alpinelinux.org/alpine#${APK_MIRROR}#g" /etc/apk/repositories; \
     apk add --no-cache \
       tzdata \
       curl-dev \
