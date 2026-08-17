@@ -243,7 +243,7 @@
                 priceOrder.push(item.price);
             }
             groups[item.price].push(item);
-            decisions[item.client_id] = {client_id: item.client_id, action: 'skip', target_id: null};
+            decisions[item.client_id] = {client_id: item.client_id, action: 'skip'};
         }
 
         function existingIdFor(group) {
@@ -308,11 +308,12 @@
                 }
                 return chooseWinner(group, existingId).then(function (winner) {
                     if (!winner) { return; }
-                    decisions[winner.client_id] = {
+                    var decision = {
                         client_id: winner.client_id,
-                        action: existingId === null ? 'insert' : 'replace',
-                        target_id: existingId
+                        action: existingId === null ? 'insert' : 'replace'
                     };
+                    if (existingId !== null) { decision.target_id = existingId; }
+                    decisions[winner.client_id] = decision;
                 });
             });
         });

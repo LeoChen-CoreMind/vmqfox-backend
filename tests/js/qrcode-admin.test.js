@@ -42,7 +42,7 @@ test('never runs more than two analyses', async () => {
 test('replace all keeps the last selected batch item and replaces database rows', async () => {
     const decisions = await QrAdmin.buildConflictDecisions(conflictPreview, 'replace_all');
 
-    assert.deepEqual(decisions.map((item) => [item.client_id, item.action, item.target_id]), [
+    assert.deepEqual(decisions.map((item) => [item.client_id, item.action, item.target_id ?? null]), [
         ['local-1', 'skip', null],
         ['local-2', 'skip', null],
         ['local-3', 'insert', null],
@@ -54,7 +54,7 @@ test('replace all keeps the last selected batch item and replaces database rows'
 test('skip all keeps the first upload-only candidate and skips database conflicts', async () => {
     const decisions = await QrAdmin.buildConflictDecisions(conflictPreview, 'skip_all');
 
-    assert.deepEqual(decisions.map((item) => [item.client_id, item.action, item.target_id]), [
+    assert.deepEqual(decisions.map((item) => [item.client_id, item.action, item.target_id ?? null]), [
         ['local-1', 'insert', null],
         ['local-2', 'skip', null],
         ['local-3', 'skip', null],
@@ -76,13 +76,15 @@ test('individual review resolves candidates in selection order and confirms data
         ['local-2', 'local-3', 'batch'],
         [null, 'local-4', 'database']
     ]);
-    assert.deepEqual(decisions.map((item) => [item.client_id, item.action, item.target_id]), [
+    assert.deepEqual(decisions.map((item) => [item.client_id, item.action, item.target_id ?? null]), [
         ['local-1', 'skip', null],
         ['local-2', 'insert', null],
         ['local-3', 'skip', null],
         ['local-4', 'replace', '88'],
         ['local-5', 'insert', null]
     ]);
+    assert.equal(Object.prototype.hasOwnProperty.call(decisions[0], 'target_id'), false);
+    assert.equal(Object.prototype.hasOwnProperty.call(decisions[3], 'target_id'), true);
 });
 
 test('structured response errors retain stale preview data', () => {
