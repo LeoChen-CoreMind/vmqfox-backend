@@ -108,6 +108,16 @@ fi
 chmod -R 755 vendor
 chmod -R 775 runtime
 
+if [[ ! -e .env ]]; then
+    printf '# VMQFOX_INSTALLER_PLACEHOLDER\n' > .env
+fi
+if [[ ! -s .env ]] || grep -qx '# VMQFOX_INSTALLER_PLACEHOLDER' .env; then
+    if id www >/dev/null 2>&1; then
+        chown www:www .env
+    fi
+    chmod 600 .env
+fi
+
 printf 'Baota dependencies and Composer packages are installed.\n'
 printf 'In Baota, restart the PHP %s service, then open /install/ to finish setup.\n' "$PHP_VERSION"
 printf 'The exact PHP-FPM service name is panel-specific; restart the version used by this site.\n'

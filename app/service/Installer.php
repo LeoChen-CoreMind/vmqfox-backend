@@ -14,11 +14,13 @@ use RuntimeException;
  */
 final class Installer
 {
+    private const ENV_PLACEHOLDER = '# VMQFOX_INSTALLER_PLACEHOLDER';
+
     public static function status(string $root): array
     {
         $root = rtrim($root, DIRECTORY_SEPARATOR);
         $vendor = is_file($root . '/vendor/autoload.php');
-        $env = is_file($root . '/.env');
+        $env = self::environmentIsConfigured($root . '/.env');
         $schemaFile = is_file($root . '/vmq.sql');
         $lockFile = is_file($root . '/runtime/install.lock');
         $installing = $lockFile && self::lockIsInstalling($root . '/runtime/install.lock');
@@ -140,6 +142,8 @@ final class Installer
 
         $envPath = $root . '/.env';
         $envCreated = false;
+        $envPlaceholderWritten = false;
+        $envOriginal = null;
         $lockPath = $runtime . '/install.lock';
         $lockHandle = @fopen($lockPath, 'x');
         if ($lockHandle === false) {
@@ -151,10 +155,17 @@ final class Installer
         fflush($lockHandle);
         @chmod($lockPath, 0600);
         try {
-            if (!is_file($envPath)) {
+            $env = self::renderEnv($values);
+            if (is_file($envPath) && self::environmentIsPlaceholder($envPath)) {
+                $envOriginal = file_get_contents($envPath);
+                if (!is_writable($envPath) || @file_put_contents($envPath, $env, LOCK_EX) === false) {
+                    throw new RuntimeException('The environment placeholder is not writable.');
+                }
+                $envPlaceholderWritten = true;
+                @chmod($envPath, 0600);
+            } elseif (!is_file($envPath)) {
                 $tmpPath = $envPath . '.tmp.' . bin2hex(random_bytes(6));
-                $env = self::renderEnv($values);
-                if (file_put_contents($tmpPath, $env, LOCK_EX) === false) {
+                if (@file_put_contents($tmpPath, $env, LOCK_EX) === false) {
                     throw new RuntimeException('Unable to write the environment file.');
                 }
                 @chmod($tmpPath, 0600);
@@ -217,6 +228,8 @@ final class Installer
             }
             if ($envCreated) {
                 @unlink($envPath);
+            } elseif ($envPlaceholderWritten && $envOriginal !== null) {
+                @file_put_contents($envPath, $envOriginal, LOCK_EX);
             }
             if ($exception instanceof InvalidArgumentException || $exception instanceof RuntimeException) {
                 throw $exception;
@@ -317,6 +330,29 @@ final class Installer
     private static function isPlaceholder(string $value): bool
     {
         return preg_match('/^(replace-with|change-me|your[-_]|example|password)/i', $value) === 1;
+    }
+
+    private static function environmentIsConfigured(string $path): bool
+    {
+        if (!is_file($path)) {
+            return false;
+        }
+        $contents = @file_get_contents($path);
+        if ($contents === false) {
+            return false;
+        }
+        $contents = trim($contents);
+        return $contents !== '' && $contents !== self::ENV_PLACEHOLDER;
+    }
+
+    private static function environmentIsPlaceholder(string $path): bool
+    {
+        $contents = @file_get_contents($path);
+        if ($contents === false) {
+            return false;
+        }
+        $contents = trim($contents);
+        return $contents === '' || $contents === self::ENV_PLACEHOLDER;
     }
 
     private static function connect(array $values): PDO

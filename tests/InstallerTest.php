@@ -90,6 +90,29 @@ test('installer handles a missing or unwritable runtime directory without warnin
     assertSameValue(true, str_contains($source, 'chown -R www:www runtime'));
 });
 
+test('installer supports a pre-created writable env placeholder', function (): void {
+    $service = file_get_contents(dirname(__DIR__) . '/app/service/Installer.php');
+    $entry = file_get_contents(dirname(__DIR__) . '/public/install/index.php');
+    $baota = file_get_contents(dirname(__DIR__) . '/scripts/install-baota.sh');
+
+    assertSameValue(true, str_contains($service, 'VMQFOX_INSTALLER_PLACEHOLDER'));
+    assertSameValue(true, str_contains($service, 'environmentIsPlaceholder'));
+    assertSameValue(true, str_contains($entry, 'install -m 600 -o www -g www /dev/null .env'));
+    assertSameValue(true, str_contains($baota, "printf '# VMQFOX_INSTALLER_PLACEHOLDER"));
+});
+
+test('env placeholder is not reported as configured', function (): void {
+    $root = sys_get_temp_dir() . DIRECTORY_SEPARATOR . 'vmqfox-env-placeholder-' . uniqid('', true);
+    mkdir($root, 0777, true);
+    file_put_contents($root . '/.env', "# VMQFOX_INSTALLER_PLACEHOLDER\n");
+    try {
+        assertSameValue(false, Installer::status($root)['env']);
+    } finally {
+        unlink($root . '/.env');
+        rmdir($root);
+    }
+});
+
 if (realpath((string)($_SERVER['SCRIPT_FILENAME'] ?? '')) === __FILE__) {
     exit($failures === 0 ? 0 : 1);
 }

@@ -2,7 +2,7 @@
 
 VMQFox 的 PHP / ThinkPHP 8 后端，提供订单、微信/支付宝收款二维码、监控端通知、管理后台兼容接口和 REST 风格 API。
 
-当前版本为 **2.3.1**。本文档按当前代码整理，最后核对日期为 **2026-08-17**。
+当前版本为 **2.3.2**。本文档按当前代码整理，最后核对日期为 **2026-08-17**。
 
 [![PHP](https://img.shields.io/badge/PHP-8.2%20recommended-777BB4?logo=php&logoColor=white)](https://www.php.net/)
 [![ThinkPHP](https://img.shields.io/badge/ThinkPHP-8-brightgreen)](https://www.thinkphp.cn/)
@@ -23,6 +23,8 @@ bash scripts/install.sh --mode baota
 ```
 
 宝塔脚本会扫描当前 CLI PHP 和 `/www/server/php/*/bin/php`，列出所有满足 `PHP >= 8.2` 的候选版本，并在终端让你选择网站实际使用的 PHP。自动化部署可用 `VMQ_PHP_BIN=/www/server/php/你的版本/bin/php` 或 `VMQ_PHP_VERSION=8.3` 指定；非交互执行才会选择扫描到的最高版本。脚本完成后必须在宝塔重启网站实际使用的 PHP-FPM 服务，然后访问 `https://你的域名/install/`。如果 `zbarimg` 或 Tesseract 仍显示“未检测到”，先从对应 PHP 版本的禁用函数中移除 `proc_open`，保存并重启 PHP；未移除并重启前网页进程无法检测这些命令。
+
+宝塔脚本会预创建仅网站用户可写的 `.env` 占位文件。手动部署遇到 `.env.tmp` 或 `.env` 权限错误时，在项目根目录执行 `install -m 600 -o www -g www /dev/null .env`，然后刷新 `/install/`；不要把整个项目根目录设置为可写。
 
 安装器不会覆盖已有 `.env`。中断后可保留现有配置再次打开 `/install/`；只有确认数据库初始化失败且尚未生成 `runtime/install.lock` 时，才由服务器管理员备份后手动调整 `.env`。安装锁生成后，网页会拒绝重复安装。
 

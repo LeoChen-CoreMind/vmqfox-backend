@@ -14,6 +14,18 @@ if (!is_dir($runtime) && !@mkdir($runtime, 0775, true) && !is_dir($runtime)) {
     $runtimeError = 'runtime 目录不可写。请在服务器终端将它的所有者和权限设置为 PHP-FPM 网站用户。';
 }
 $noncePath = $runtime . '/installer-nonce';
+$envPath = $root . '/.env';
+$envError = '';
+$envContents = is_file($envPath) ? @file_get_contents($envPath) : false;
+$envIsPlaceholder = $envContents !== false
+    && (trim($envContents) === '' || trim($envContents) === '# VMQFOX_INSTALLER_PLACEHOLDER');
+if (is_file($envPath) && $envContents === false) {
+    $envError = '.env 文件不可读。请检查 PHP-FPM 网站用户对该文件的读取权限。';
+} elseif (!is_file($envPath) && !is_writable($root)) {
+    $envError = '项目根目录不可写，PHP-FPM 无法创建 .env。请只预创建 .env 文件，不要把整个项目目录设为可写。';
+} elseif ($envIsPlaceholder && !is_writable($envPath)) {
+    $envError = '.env 占位文件不可写。请将该文件的所有者设置为 PHP-FPM 网站用户。';
+}
 $status = Installer::status($root);
 $isJson = str_contains((string)($_SERVER['HTTP_ACCEPT'] ?? ''), 'application/json');
 $message = '';
@@ -37,6 +49,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     try {
         if ($runtimeError !== '') {
             throw new RuntimeException($runtimeError);
+        }
+        if ($envError !== '') {
+            throw new RuntimeException($envError);
         }
         if (!hash_equals($storedNonce, $postedNonce) || $storedNonce === '' || $nonceAge > 900) {
             throw new RuntimeException('Installer session expired. Refresh the page and try again.');
@@ -81,6 +96,9 @@ if ($runtimeError === '') {
 }
 if ($runtimeError !== '' && $error === '') {
     $error = $runtimeError . ' 常用宝塔命令：mkdir -p runtime && chown -R www:www runtime && chmod -R 775 runtime';
+}
+if ($envError !== '' && $error === '') {
+    $error = $envError . ' 常用宝塔命令：cd ' . $root . ' && install -m 600 -o www -g www /dev/null .env';
 }
 @chmod($noncePath, 0600);
 
@@ -138,7 +156,7 @@ $databaseImported = (bool)($status['database_imported'] ?? false);
         <input type="hidden" name="schema_action" value="import">
         <?php endif; ?>
         <label style="display:block;margin-top:18px"><input type="checkbox" name="confirm" value="1" required style="width:auto;margin-right:8px">我确认数据库可用于此站点，并同意<?= $databaseImported ? '跳过已存在的数据库导入并' : '导入 `vmq.sql` 和' ?>创建管理员。</label>
-        <button type="submit" <?= $nonce === '' ? 'disabled' : '' ?>>开始安装</button>
+        <button type="submit" <?= $nonce === '' || $envError !== '' ? 'disabled' : '' ?>>开始安装</button>
     </form>
     <?php else: ?><p>系统已安装。请访问 <a href="/">首页</a> 登录。</p><?php endif; ?>
     <h2>主机依赖安装</h2>
