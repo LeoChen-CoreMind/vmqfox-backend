@@ -13,6 +13,8 @@
 - WeChat type `1` and Alipay type `2` compare duplicates only within their own type.
 - Normalize every price to exactly two decimal places before comparison.
 - Append selections, ignore exact duplicate files by `name + size + lastModified`, and hold at most 20 queue items.
+- Treat the entire mounted WeChat or Alipay add page as a multi-file image drop target; dropped and picker-selected files share one combined 20-item queue.
+- Reject non-image dropped files visibly without consuming queue capacity, and clear all drag state/listeners when the add page is removed.
 - Run at most two recognition jobs concurrently, including files appended while workers are active.
 - Queue states are exactly `queued`, `processing`, `ready`, `error`, `skipped`, and `saved`.
 - Preserve automatic QR/amount recognition and allow both fields to be edited manually.
@@ -33,14 +35,14 @@
 - Modify `app/service/QrcodeInput.php`: normalize QR types and sort tokens; return fixed SQL order maps.
 - Modify `app/controller/api/Qrcode.php`: expose preview/commit actions, apply server-side sorting, share the write lock, and make legacy writes duplicate-safe.
 - Modify `route/app.php`: register authenticated batch preview and commit routes before the dynamic `qrcode/:id` routes.
-- Modify `public/js/qrcode-admin.js`: implement additive queue state, bounded recognition scheduling, preview/conflict decisions, and transactional batch commit UI.
+- Modify `public/js/qrcode-admin.js`: implement additive picker/drop ingestion, whole-page drag state, bounded recognition scheduling, preview/conflict decisions, and transactional batch commit UI.
 - Modify `public/js/qrcode-list.js`: render sort controls, persist sort per payment type, and include sort in paginated list requests.
-- Modify `public/css/qrcode-admin.css`: style compact upload statuses, conflict dialogs, sort controls, and responsive toolbar behavior.
+- Modify `public/css/qrcode-admin.css`: style whole-page drag feedback, compact upload statuses, conflict dialogs, sort controls, and responsive toolbar behavior.
 - Modify `public/aaa.html`: bump QR asset cache keys after browser code/CSS changes.
 - Create `tests/QrcodeBatchTest.php`: unit-test normalization, payment-type isolation inputs, conflict groups, decisions, and stale tokens.
 - Modify `tests/QrcodeInputTest.php`: unit-test type and sorting whitelist behavior.
 - Create `tests/QrcodeControllerContractTest.php`: verify routes, shared lock use, transaction boundary, replace-in-place fields, and sort-before-pagination structure.
-- Modify `tests/js/qrcode-admin.test.js`: test append/dedupe/cap/scheduler and all conflict decision modes.
+- Modify `tests/js/qrcode-admin.test.js`: test picker/drop append, non-image rejection, drag lifecycle, dedupe/cap/scheduler, and all conflict decision modes.
 - Modify `tests/js/qrcode-list.test.js`: test sort request construction, persistence keys, and default fallback.
 - Modify `README.md`: update the current version, API table, feature list, and dated release notes for the batch workflow and server-side sorting.
 - Modify `ver`: change the application release marker from `2.3.3|2026-08-17` to `2.3.4|2026-08-17`.
@@ -381,12 +383,15 @@ git commit -m "feat: add transactional QR batch API"
 
 **Files:**
 - Modify: `public/js/qrcode-admin.js`
+- Modify: `public/css/qrcode-admin.css`
 - Modify: `tests/js/qrcode-admin.test.js`
 
 **Interfaces:**
 - Produces: `fileIdentity(file): string`.
+- Produces: `partitionImageFiles(files): {accepted:Array,rejected:Array}`.
 - Produces: `appendFiles(items, files, createItem, maxItems): {items:Array, added:Array, ignored:number, rejected:number}`.
 - Produces: `createRecognitionQueue(worker, concurrency, onChange)` with `enqueue(items)`, `remove(id)`, `whenIdle()`, and no more than two active workers.
+- Produces: `bindDropTarget(root, onFiles, onState): () => void`, with the returned function removing all four drag/drop listeners and clearing drag state.
 - Preserves: `QrAdmin.mount === QrAdmin.mountUpload`, `analyzeFiles()`, `runPool()`, and the existing setting-page callers.
 
 - [ ] **Step 1: Write failing pure queue tests**
@@ -409,11 +414,37 @@ test('appends selections, ignores exact files, and enforces total cap', () => {
 
 Add an asynchronous scheduler case: enqueue two files, wait until both start, append two more, remove one pending item, resolve workers, and assert maximum active count is two and no callback changes the removed item.
 
+Add exact drop-ingestion and lifecycle cases using a small fake event target:
+
+```js
+test('accepts multiple dropped images and rejects non-images before queue capacity', () => {
+    const result = QrAdmin.partitionImageFiles([
+        {name: 'one.jpg', type: 'image/jpeg'},
+        {name: 'notes.txt', type: 'text/plain'},
+        {name: 'two.png', type: 'image/png'}
+    ]);
+    assert.deepEqual(result.accepted.map((file) => file.name), ['one.jpg', 'two.png']);
+    assert.deepEqual(result.rejected.map((file) => file.name), ['notes.txt']);
+});
+
+test('whole-page drop binding reports drag state, forwards files, and cleans up', () => {
+    const root = createFakeEventTarget();
+    const states = [], drops = [];
+    const destroy = QrAdmin.bindDropTarget(root, (files) => drops.push(files), (active) => states.push(active));
+    root.dispatch('dragenter', dragEvent([]));
+    root.dispatch('drop', dragEvent([{name: 'one.jpg', type: 'image/jpeg'}]));
+    destroy();
+    root.dispatch('dragenter', dragEvent([]));
+    assert.deepEqual(states, [true, false, false]);
+    assert.equal(drops.length, 1);
+});
+```
+
 - [ ] **Step 2: Run JS tests and verify failure**
 
 Run: `npm test`
 
-Expected: FAIL because `appendFiles()` and `createRecognitionQueue()` are not exported.
+Expected: FAIL because `partitionImageFiles()`, `appendFiles()`, `createRecognitionQueue()`, and `bindDropTarget()` are not exported.
 
 - [ ] **Step 3: Implement file identity and append logic**
 
@@ -503,20 +534,46 @@ function createRecognitionQueue(worker, concurrency, onChange) {
 
 Keep the existing `runPool()` and `analyzeFiles()` behavior for other pages. In `mountUpload()`, selection calls `appendFiles()`, renders ignored/rejected counts with `layer.msg`, resets the file input value so the same picker can fire again, then enqueues only `result.added`.
 
-- [ ] **Step 5: Render every queue state and disable save while busy**
+- [ ] **Step 5: Bind the entire mounted add page as a drop target**
+
+Use one `ingestFiles(files)` path for picker and drop input. It calls `partitionImageFiles()` before `appendFiles()`, reports rejected non-images separately from exact duplicates and queue-overflow files, and enqueues only accepted additions. A mixed drop still accepts valid images that fit.
+
+`bindDropTarget()` listens only on the mounted `#qr-upload-root`, calls `preventDefault()` for file drags, uses a nested drag-enter depth counter to avoid flicker, forwards `event.dataTransfer.files` on drop, and toggles `is-dragging` through `onState`. The `mountUpload()` return value adds `destroy()`; it calls the binding cleanup and revokes every remaining object URL. Because no listener is attached to `document` or `window`, removal of the fragment cannot intercept drops on management or other admin pages.
+
+Add whole-page hit area and overlay feedback without nesting another card:
+
+```css
+.qr-admin--upload { min-height: calc(100vh - 150px); position: relative; }
+.qr-admin--upload::after {
+    align-items: center;
+    background: rgba(255, 255, 255, 0.94);
+    border: 2px dashed #1f6f50;
+    color: #174f3a;
+    content: '释放图片以加入识别队列';
+    display: none;
+    inset: 0;
+    justify-content: center;
+    pointer-events: none;
+    position: absolute;
+    z-index: 20;
+}
+.qr-admin--upload.is-dragging::after { display: flex; }
+```
+
+- [ ] **Step 6: Render every queue state and disable save while busy**
 
 Update `uploadItemsHtml()` to map all fixed states to Chinese labels and state classes. Bind edits by `data-id` rather than array index so appended/removal operations cannot target the wrong card. Save is disabled when any item has `queued` or `processing`; error items remain manually editable and can become `ready` after valid edits.
 
-- [ ] **Step 6: Run JS tests**
+- [ ] **Step 7: Run JS tests**
 
 Run: `npm test`
 
 Expected: all JS tests PASS, including the existing two-worker and editable-card tests.
 
-- [ ] **Step 7: Commit the queue implementation**
+- [ ] **Step 8: Commit the queue implementation**
 
 ```bash
-git add public/js/qrcode-admin.js tests/js/qrcode-admin.test.js
+git add public/js/qrcode-admin.js public/css/qrcode-admin.css tests/js/qrcode-admin.test.js
 git commit -m "feat: add bounded QR recognition queue"
 ```
 
@@ -740,7 +797,7 @@ git commit -m "feat: add server-side QR list sorting"
 
 - [ ] **Step 1: Extend the browser smoke harness**
 
-Make the upload smoke page expose deterministic fake preview/commit responses and render a 20-card queue. Its assertions must check: a second selection appends, file 21 is rejected, cards remain editable, conflict actions can be selected, and the final request is one batch commit rather than many single-add requests.
+Make the upload smoke page expose deterministic fake preview/commit responses and render a 20-card queue. Its assertions must check: a second picker selection appends; a whole-page mixed drop accepts all fitting images but rejects the non-image; drag feedback clears after drop; file 21 is rejected across picker and drop input combined; navigating away removes drop interception; cards remain editable; conflict actions can be selected; and the final request is one batch commit rather than many single-add requests.
 
 Update `tests/browser/qrcode-delete-smoke.html` to assert the requested URL contains `sort=amount_desc` after changing the selector and that page resets to `1`.
 
@@ -790,6 +847,7 @@ Document these exact operational facts in the existing Chinese README/release no
 
 ```text
 - 微信和支付宝每次队列最多 20 张图片，识别并发数为 2。
+- 微信和支付宝添加页支持整页拖入多张图片，拖拽和点击选择共用 20 张总上限。
 - 新选择会追加，完全相同的文件会自动忽略，识别后金额和二维码内容仍可人工修改。
 - 同支付类型、同金额会在保存前要求全部替换、逐个确认或全部放弃冲突项。
 - 替换仅更新原记录的二维码内容，不改变 ID、金额和启用状态。
