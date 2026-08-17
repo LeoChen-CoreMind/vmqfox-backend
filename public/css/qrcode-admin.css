@@ -160,6 +160,16 @@
     color: #7a5400;
 }
 
+.qr-status.is-saved {
+    background: #e7f6ed;
+    color: #17713d;
+}
+
+.qr-status.is-skipped {
+    background: #f6f1e8;
+    color: #795b24;
+}
+
 .qr-icon-btn {
     align-items: center;
     background: #fff;

@@ -159,3 +159,22 @@ test('upload items use management-style cards with editable URL and amount', () 
     assert.match(html, /value="wxp:\/\/example"/);
     assert.match(html, /data-field="amount"/);
 });
+
+test('renders saved and skipped upload queue states distinctly', () => {
+    const base = {
+        file: {name: 'wechat.jpg'},
+        preview: 'blob:preview',
+        url: 'wxp://example',
+        amount: '1.00',
+        amountStatus: 'manual'
+    };
+    const html = QrAdmin.uploadItemsHtml([
+        {...base, id: 'local-1', status: 'saved'},
+        {...base, id: 'local-2', status: 'skipped'}
+    ]);
+
+    assert.match(html, /qr-status is-saved/);
+    assert.match(html, /qr-status is-skipped/);
+    assert.match(html, />已保存<\/span>/);
+    assert.match(html, />已放弃<\/span>/);
+});

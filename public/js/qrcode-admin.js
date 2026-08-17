@@ -393,6 +393,8 @@
     function statusText(item) {
         if (item.status === 'processing') { return '识别中'; }
         if (item.status === 'error') { return '识别失败'; }
+        if (item.status === 'skipped') { return '已放弃'; }
+        if (item.status === 'saved') { return '已保存'; }
         if (item.amountStatus === 'detected') { return '已自动识别'; }
         if (item.status === 'ready') { return '请确认金额'; }
         return '等待识别';
@@ -408,7 +410,9 @@
                 ? ' is-error'
                 : (item.status === 'processing' ? ' is-processing'
                     : (item.status === 'queued' ? ' is-queued'
-                        : (item.amountStatus === 'detected' ? ' is-success' : ' is-ready')));
+                        : (item.status === 'skipped' ? ' is-skipped'
+                            : (item.status === 'saved' ? ' is-saved'
+                                : (item.amountStatus === 'detected' ? ' is-success' : ' is-ready')))));
             var detail = item.error || item.warning || (item.decoder ? '识别引擎：' + item.decoder : '等待处理');
             return '<article class="qr-card qr-upload-card" data-id="' + escapeHtml(item.id) + '">' +
                 '<img class="qr-card__image" src="' + escapeHtml(item.preview) + '" alt="二维码预览">' +
@@ -583,6 +587,11 @@
                     if (!item) { return; }
                     item.amount = field.value.trim();
                     item.amountStatus = 'manual';
+                    if (item.status === 'error' && item.url && isValidAmount(item.amount)) {
+                        item.status = 'ready';
+                        item.error = '';
+                        render();
+                    }
                 });
             });
             Array.prototype.forEach.call(itemContainer.querySelectorAll('[data-action="remove"]'), function (button) {
