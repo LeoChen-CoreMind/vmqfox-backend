@@ -1,0 +1,8 @@
+{
+  "scripts": {
+    "test": "node --test tests/js/admin-shell.test.js tests/js/qrcode-admin.test.js tests/js/qrcode-list.test.js"
+  },
+  "dependencies": {
+    "zod": "^3.25.67"
+  }
+}
