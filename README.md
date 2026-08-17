@@ -2,7 +2,7 @@
 
 VMQFox 的 PHP / ThinkPHP 8 后端，提供订单、微信/支付宝收款二维码、监控端通知、管理后台兼容接口和 REST 风格 API。
 
-当前版本为 **2.3.4**。本文档按当前代码整理，最后核对日期为 **2026-08-17**。
+当前版本为 **2.3.5**。本文档按当前代码整理，最后核对日期为 **2026-08-17**。
 
 [![PHP](https://img.shields.io/badge/PHP-8.2%20recommended-777BB4?logo=php&logoColor=white)](https://www.php.net/)
 [![ThinkPHP](https://img.shields.io/badge/ThinkPHP-8-brightgreen)](https://www.thinkphp.cn/)
@@ -524,6 +524,7 @@ docker compose --env-file .env.docker logs --tail=200 backend mysql
 - 修复系统运行时间显示。
 - Docker 镜像加入二维码识别依赖。
 - 后台增加 KSU 监控模块下载入口和互斥使用说明。
+- 修复批量二维码预览和保存失败时的乱码及英文提示，统一显示可读中文。
 
 ## 相关项目
 
