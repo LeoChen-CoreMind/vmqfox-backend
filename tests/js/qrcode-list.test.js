@@ -2,6 +2,17 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const QrList = require('../../public/js/qrcode-list.js');
 
+test('builds whitelisted server-side sort requests and separate storage keys', () => {
+    assert.equal(QrList.sortStorageKey(1), 'vmqfox:qrcode-sort:wechat');
+    assert.equal(QrList.sortStorageKey(2), 'vmqfox:qrcode-sort:alipay');
+    assert.equal(QrList.normalizeSort('amount_desc'), 'amount_desc');
+    assert.equal(QrList.normalizeSort('id desc; drop table'), 'newest');
+    assert.equal(
+        QrList.listUrl('index.php/api/qrcode/wechat', {page: 2, limit: 24, sort: 'amount_asc'}),
+        'index.php/api/qrcode/wechat?page=2&limit=24&sort=amount_asc'
+    );
+});
+
 test('builds a bounded page window', () => {
     assert.deepEqual(QrList.pageWindow(1, 10), [1, 2, 3, 4, 5]);
     assert.deepEqual(QrList.pageWindow(8, 10), [6, 7, 8, 9, 10]);

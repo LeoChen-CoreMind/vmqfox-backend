@@ -8,6 +8,46 @@
 }(typeof self !== 'undefined' ? self : this, function (QrAdmin) {
     'use strict';
 
+    var SORT_TOKENS = {
+        newest: true,
+        oldest: true,
+        amount_asc: true,
+        amount_desc: true,
+        enabled_first: true,
+        disabled_first: true
+    };
+
+    function normalizeSort(value) {
+        var token = String(value == null ? '' : value).trim();
+        return SORT_TOKENS[token] ? token : 'newest';
+    }
+
+    function sortStorageKey(type) {
+        return Number(type) === 2 ? 'vmqfox:qrcode-sort:alipay' : 'vmqfox:qrcode-sort:wechat';
+    }
+
+    function listUrl(endpoint, state) {
+        return endpoint + '?page=' + encodeURIComponent(state.page) +
+            '&limit=' + encodeURIComponent(state.limit) +
+            '&sort=' + encodeURIComponent(normalizeSort(state.sort));
+    }
+
+    function readStoredSort(key) {
+        try {
+            return normalizeSort(window.localStorage.getItem(key));
+        } catch (error) {
+            return 'newest';
+        }
+    }
+
+    function writeStoredSort(key, value) {
+        try {
+            window.localStorage.setItem(key, normalizeSort(value));
+        } catch (error) {
+            // Storage denial must not prevent list loading or sorting.
+        }
+    }
+
     function pageWindow(current, totalPages) {
         if (totalPages <= 5) {
             return Array.from({length: totalPages}, function (_, index) { return index + 1; });
@@ -60,13 +100,19 @@
         var type = Number(options.type) === 2 ? 2 : 1;
         var endpoint = options.endpoint || ('index.php/api/qrcode/' + (type === 1 ? 'wechat' : 'alipay'));
         var deleteEndpoint = options.deleteEndpoint || 'index.php/api/qrcode/delete';
-        var state = {page: 1, limit: 12, total: 0, items: [], loading: false};
+        var storageKey = sortStorageKey(type);
+        var state = {page: 1, limit: 12, sort: readStoredSort(storageKey), total: 0, items: [], loading: false};
         var loadVersion = 0;
 
         root.innerHTML = '<div class="qr-page-toolbar">' +
             '<div><h2>' + (type === 1 ? '微信二维码' : '支付宝二维码') + '</h2><span class="qr-toolbar-status" data-role="count">0 条</span></div>' +
             '<div class="qr-toolbar-actions">' +
                 '<label class="qr-page-size">每页<select data-role="limit"><option value="12">12</option><option value="24">24</option><option value="48">48</option></select></label>' +
+                '<label class="qr-page-sort">排序<select data-role="sort">' +
+                    '<option value="newest">最新优先</option><option value="oldest">最早优先</option>' +
+                    '<option value="amount_asc">金额从低到高</option><option value="amount_desc">金额从高到低</option>' +
+                    '<option value="enabled_first">启用优先</option><option value="disabled_first">禁用优先</option>' +
+                '</select></label>' +
                 '<button type="button" class="layui-btn layui-btn-primary" data-action="dependencies"><i class="layui-icon layui-icon-set"></i>识别组件</button>' +
                 '<button type="button" class="qr-icon-btn" data-action="refresh" title="刷新"><i class="layui-icon layui-icon-refresh"></i></button>' +
             '</div>' +
@@ -75,6 +121,8 @@
         var grid = root.querySelector('[data-role="grid"]');
         var count = root.querySelector('[data-role="count"]');
         var pagination = root.querySelector('[data-role="pagination"]');
+        var sortSelect = root.querySelector('[data-role="sort"]');
+        sortSelect.value = state.sort;
 
         function renderCards() {
             count.textContent = state.total + ' 条';
@@ -129,13 +177,15 @@
             state.loading = true;
             renderCards();
             return QrAdmin.request({
-                url: endpoint + '?page=' + state.page + '&limit=' + state.limit
+                url: listUrl(endpoint, state)
             }).then(function (data) {
                 if (version !== loadVersion) { return; }
                 state.total = Number(data.total) || 0;
                 state.items = Array.isArray(data.items) ? data.items : [];
                 state.page = Number(data.page) || state.page;
                 state.limit = Number(data.limit) || state.limit;
+                state.sort = normalizeSort(data.sort || state.sort);
+                sortSelect.value = state.sort;
                 state.loading = false;
                 renderCards();
                 renderPagination();
@@ -153,6 +203,13 @@
         root.querySelector('[data-action="refresh"]').addEventListener('click', load);
         root.querySelector('[data-role="limit"]').addEventListener('change', function (event) {
             state.limit = Number(event.target.value);
+            state.page = 1;
+            load();
+        });
+        sortSelect.addEventListener('change', function (event) {
+            state.sort = normalizeSort(event.target.value);
+            event.target.value = state.sort;
+            writeStoredSort(storageKey, state.sort);
             state.page = 1;
             load();
         });
@@ -246,9 +303,12 @@
     return {
         afterDeletePage: afterDeletePage,
         deleteRequest: deleteRequest,
+        listUrl: listUrl,
         mount: mount,
         normalizeId: normalizeId,
+        normalizeSort: normalizeSort,
         pageWindow: pageWindow,
+        sortStorageKey: sortStorageKey,
         toggleRequest: toggleRequest
     };
 }));

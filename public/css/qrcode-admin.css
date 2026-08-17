@@ -99,7 +99,8 @@
 
 .qr-url-field,
 .qr-inline-amount,
-.qr-page-size {
+.qr-page-size,
+.qr-page-sort {
     color: #68737d;
     display: flex;
     font-size: 12px;
@@ -113,7 +114,8 @@
 
 .qr-url-field input,
 .qr-inline-amount input,
-.qr-page-size select {
+.qr-page-size select,
+.qr-page-sort select {
     background: #fff;
     border: 1px solid #cfd5dc;
     border-radius: 4px;
@@ -123,6 +125,8 @@
     min-width: 0;
     padding: 0 9px;
 }
+
+.qr-page-sort select { min-width: 132px; }
 
 .qr-url-field input,
 .qr-inline-amount input {
