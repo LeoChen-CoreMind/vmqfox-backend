@@ -2,6 +2,18 @@
 
 use app\service\QrcodeBatch;
 
+function assertQrcodeBatchMessage(string $expected, callable $callback): void
+{
+    try {
+        $callback();
+    } catch (InvalidArgumentException $exception) {
+        assertSameValue($expected, $exception->getMessage());
+        return;
+    }
+
+    throw new RuntimeException('expected InvalidArgumentException');
+}
+
 test('builds database and upload-only conflict groups', function (): void {
     $items = QrcodeBatch::normalizeItems([
         ['client_id' => 'local-1', 'pay_url' => 'wxp://one', 'price' => '10'],
@@ -125,4 +137,38 @@ test('normalizes decisions and commits a validated plan', function (): void {
         return;
     }
     throw new RuntimeException('expected an illegal replacement target to be rejected');
+});
+
+test('returns readable Chinese messages for batch validation failures', function (): void {
+    assertQrcodeBatchMessage('每批必须包含 1 到 20 个二维码', fn () => QrcodeBatch::normalizeItems([]));
+    assertQrcodeBatchMessage('支付类型错误', fn () => QrcodeBatch::preview(3, [
+        ['client_id' => 'local-1', 'pay_url' => 'wxp://one', 'price' => '10'],
+    ], []));
+
+    $items = QrcodeBatch::normalizeItems([
+        ['client_id' => 'local-1', 'pay_url' => 'wxp://one', 'price' => '10'],
+    ]);
+    assertQrcodeBatchMessage('二维码处理决定不完整', fn () => QrcodeBatch::normalizeDecisions([], $items));
+    assertQrcodeBatchMessage('二维码预览数据无效', fn () => QrcodeBatch::commitPlan([], []));
+});
+
+test('contains no mojibake or English-only batch exception messages', function (): void {
+    $source = file_get_contents(dirname(__DIR__) . '/app/service/QrcodeBatch.php');
+    if ($source === false) {
+        throw new RuntimeException('unable to read QrcodeBatch source');
+    }
+
+    preg_match_all("/throw new InvalidArgumentException\\('([^']*)'\\);/u", $source, $matches);
+    if ($matches[1] === []) {
+        throw new RuntimeException('expected QrcodeBatch exception messages');
+    }
+
+    foreach ($matches[1] as $message) {
+        if (preg_match('/[娴浼閸濞闁锟�]/u', $message) === 1) {
+            throw new RuntimeException('mojibake remains: ' . $message);
+        }
+        if (preg_match('/^[\x00-\x7F]+$/', $message) === 1) {
+            throw new RuntimeException('English-only message remains: ' . $message);
+        }
+    }
 });
