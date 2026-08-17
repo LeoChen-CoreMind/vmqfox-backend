@@ -2,6 +2,20 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const QrAdmin = require('../../public/js/qrcode-admin.js');
 
+const conflictPreview = {
+    has_conflicts: true,
+    conflict_token: 'a'.repeat(64),
+    items: [
+        {client_id: 'local-1', pay_url: 'wxp://1', price: '10.00', existing_id: null},
+        {client_id: 'local-2', pay_url: 'wxp://2', price: '10.00', existing_id: null},
+        {client_id: 'local-3', pay_url: 'wxp://3', price: '10.00', existing_id: null},
+        {client_id: 'local-4', pay_url: 'wxp://4', price: '20.00', existing_id: '88'},
+        {client_id: 'local-5', pay_url: 'wxp://5', price: '30.00', existing_id: null}
+    ],
+    batch_conflicts: [{price: '10.00', client_ids: ['local-1', 'local-2', 'local-3']}],
+    database_conflicts: [{price: '20.00', existing_id: '88', client_ids: ['local-4']}]
+};
+
 test('exports the upload mount function under both supported names', () => {
     assert.equal(QrAdmin.mount, QrAdmin.mountUpload);
 });
@@ -23,6 +37,60 @@ test('never runs more than two analyses', async () => {
         active--;
     });
     assert.equal(max, 2);
+});
+
+test('replace all keeps the last selected batch item and replaces database rows', async () => {
+    const decisions = await QrAdmin.buildConflictDecisions(conflictPreview, 'replace_all');
+
+    assert.deepEqual(decisions.map((item) => [item.client_id, item.action, item.target_id]), [
+        ['local-1', 'skip', null],
+        ['local-2', 'skip', null],
+        ['local-3', 'insert', null],
+        ['local-4', 'replace', '88'],
+        ['local-5', 'insert', null]
+    ]);
+});
+
+test('skip all keeps the first upload-only candidate and skips database conflicts', async () => {
+    const decisions = await QrAdmin.buildConflictDecisions(conflictPreview, 'skip_all');
+
+    assert.deepEqual(decisions.map((item) => [item.client_id, item.action, item.target_id]), [
+        ['local-1', 'insert', null],
+        ['local-2', 'skip', null],
+        ['local-3', 'skip', null],
+        ['local-4', 'skip', null],
+        ['local-5', 'insert', null]
+    ]);
+});
+
+test('individual review resolves candidates in selection order and confirms database replacement', async () => {
+    const calls = [];
+    const choices = ['replace', 'skip', 'replace'];
+    const decisions = await QrAdmin.buildConflictDecisions(conflictPreview, 'individual', async (current, candidate, conflict) => {
+        calls.push([current && current.client_id, candidate.client_id, conflict.kind]);
+        return choices.shift();
+    });
+
+    assert.deepEqual(calls, [
+        ['local-1', 'local-2', 'batch'],
+        ['local-2', 'local-3', 'batch'],
+        [null, 'local-4', 'database']
+    ]);
+    assert.deepEqual(decisions.map((item) => [item.client_id, item.action, item.target_id]), [
+        ['local-1', 'skip', null],
+        ['local-2', 'insert', null],
+        ['local-3', 'skip', null],
+        ['local-4', 'replace', '88'],
+        ['local-5', 'insert', null]
+    ]);
+});
+
+test('structured response errors retain stale preview data', () => {
+    const error = QrAdmin.responseError({code: 409, msg: 'changed', data: {preview: conflictPreview}}, 'fallback');
+
+    assert.equal(error.message, 'changed');
+    assert.equal(error.code, 409);
+    assert.equal(error.data.preview, conflictPreview);
 });
 
 test('appends selections, ignores exact files, and enforces the combined cap', () => {

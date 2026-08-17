@@ -215,11 +215,125 @@
         };
     }
 
+    function buildConflictDecisions(preview, mode, reviewChoice) {
+        if (!preview || !Array.isArray(preview.items) || !preview.items.length ||
+            ['replace_all', 'individual', 'skip_all'].indexOf(mode) === -1) {
+            return Promise.reject(new Error('二维码冲突数据无效'));
+        }
+        if (mode === 'individual' && typeof reviewChoice !== 'function') {
+            return Promise.reject(new Error('逐个确认回调无效'));
+        }
+
+        var seenIds = {};
+        var groups = {};
+        var priceOrder = [];
+        var decisions = {};
+        var validPrice = /^\d{1,8}\.\d{2}$/;
+
+        for (var i = 0; i < preview.items.length; i++) {
+            var item = preview.items[i];
+            if (!item || typeof item.client_id !== 'string' || !item.client_id || seenIds[item.client_id] ||
+                typeof item.pay_url !== 'string' || !item.pay_url || !validPrice.test(String(item.price || '')) ||
+                (item.existing_id !== null && item.existing_id !== undefined && !/^[1-9]\d*$/.test(String(item.existing_id)))) {
+                return Promise.reject(new Error('二维码冲突项目无效'));
+            }
+            seenIds[item.client_id] = true;
+            if (!groups[item.price]) {
+                groups[item.price] = [];
+                priceOrder.push(item.price);
+            }
+            groups[item.price].push(item);
+            decisions[item.client_id] = {client_id: item.client_id, action: 'skip', target_id: null};
+        }
+
+        function existingIdFor(group) {
+            var existingId = null;
+            group.forEach(function (item) {
+                if (item.existing_id !== null && item.existing_id !== undefined) {
+                    if (existingId !== null && existingId !== String(item.existing_id)) {
+                        throw new Error('同金额二维码冲突目标不一致');
+                    }
+                    existingId = String(item.existing_id);
+                }
+            });
+            return existingId;
+        }
+
+        function chooseWinner(group, existingId) {
+            if (mode === 'replace_all') {
+                return Promise.resolve(group[group.length - 1]);
+            }
+            if (mode === 'skip_all') {
+                return Promise.resolve(existingId === null ? group[0] : null);
+            }
+
+            var winner = group[0];
+            var chain = Promise.resolve();
+            group.slice(1).forEach(function (candidate) {
+                chain = chain.then(function () {
+                    return Promise.resolve(reviewChoice(winner, candidate, {
+                        kind: 'batch',
+                        price: candidate.price,
+                        client_ids: group.map(function (entry) { return entry.client_id; })
+                    })).then(function (choice) {
+                        if (choice === 'replace') {
+                            winner = candidate;
+                        } else if (choice !== 'skip') {
+                            throw new Error('逐个确认结果无效');
+                        }
+                    });
+                });
+            });
+            return chain.then(function () {
+                if (existingId === null) { return winner; }
+                return Promise.resolve(reviewChoice(null, winner, {
+                    kind: 'database', price: winner.price, existing_id: existingId
+                })).then(function (choice) {
+                    if (choice === 'replace') { return winner; }
+                    if (choice === 'skip') { return null; }
+                    throw new Error('逐个确认结果无效');
+                });
+            });
+        }
+
+        var sequence = Promise.resolve();
+        priceOrder.forEach(function (price) {
+            sequence = sequence.then(function () {
+                var group = groups[price];
+                var existingId;
+                try {
+                    existingId = existingIdFor(group);
+                } catch (error) {
+                    return Promise.reject(error);
+                }
+                return chooseWinner(group, existingId).then(function (winner) {
+                    if (!winner) { return; }
+                    decisions[winner.client_id] = {
+                        client_id: winner.client_id,
+                        action: existingId === null ? 'insert' : 'replace',
+                        target_id: existingId
+                    };
+                });
+            });
+        });
+
+        return sequence.then(function () {
+            return preview.items.map(function (item) { return decisions[item.client_id]; });
+        });
+    }
+
     function getJquery() {
         if (typeof window === 'undefined') {
             return null;
         }
         return window.jQuery || (window.layui && window.layui.$) || null;
+    }
+
+    function responseError(response, fallback) {
+        var error = new Error((response && response.msg) || fallback);
+        error.code = response && Number(response.code);
+        error.data = response && response.data;
+        return error;
     }
 
     function request(options) {
@@ -241,14 +355,13 @@
                         resolve(response.data);
                         return;
                     }
-                    reject(new Error((response && response.msg) || '请求失败'));
+                    reject(responseError(response, '请求失败'));
                 },
                 error: function (xhr) {
-                    var message = '请求失败，请检查网络或登录状态';
-                    if (xhr && xhr.responseJSON && xhr.responseJSON.msg) {
-                        message = xhr.responseJSON.msg;
-                    }
-                    reject(new Error(message));
+                    reject(responseError(
+                        xhr && xhr.responseJSON,
+                        '请求失败，请检查网络或登录状态'
+                    ));
                 }
             });
         });
@@ -406,6 +519,7 @@
         }
 
         return items.map(function (item) {
+            var disabled = item.commitLocked ? ' disabled' : '';
             var statusClass = item.status === 'error'
                 ? ' is-error'
                 : (item.status === 'processing' ? ' is-processing'
@@ -421,11 +535,11 @@
                         '<strong class="qr-upload-card__name" title="' + escapeHtml(item.file.name) + '">' + escapeHtml(item.file.name) + '</strong>' +
                         '<span class="qr-status' + statusClass + '">' + statusText(item) + '</span>' +
                     '</div>' +
-                    '<label class="qr-url-field"><span>收款链接</span><input type="text" data-field="url" value="' + escapeHtml(item.url) + '" placeholder="自动识别失败时可手动粘贴"></label>' +
+                    '<label class="qr-url-field"><span>收款链接</span><input type="text" data-field="url" value="' + escapeHtml(item.url) + '" placeholder="自动识别失败时可手动粘贴"' + disabled + '></label>' +
                     '<div class="qr-upload-item__detail" title="' + escapeHtml(detail) + '">' + escapeHtml(detail) + '</div>' +
                     '<div class="qr-upload-card__actions">' +
-                        '<label class="qr-inline-amount"><span>金额</span><input type="text" inputmode="decimal" data-field="amount" value="' + escapeHtml(item.amount) + '" placeholder="0.00"></label>' +
-                        '<button type="button" class="qr-icon-btn qr-icon-btn--danger" data-action="remove" title="移除"><i class="layui-icon layui-icon-delete"></i></button>' +
+                        '<label class="qr-inline-amount"><span>金额</span><input type="text" inputmode="decimal" data-field="amount" value="' + escapeHtml(item.amount) + '" placeholder="0.00"' + disabled + '></label>' +
+                        '<button type="button" class="qr-icon-btn qr-icon-btn--danger" data-action="remove" title="移除"' + disabled + '><i class="layui-icon layui-icon-delete"></i></button>' +
                     '</div>' +
                 '</div>' +
             '</article>';
@@ -493,16 +607,108 @@
         });
     }
 
+    function conflictSummaryHtml(preview) {
+        var databaseCount = (preview.database_conflicts || []).length;
+        var batchCount = (preview.batch_conflicts || []).length;
+        return '<div class="qr-conflict-summary">' +
+            '<p>检测到同金额二维码，请选择本批次的处理方式。</p>' +
+            '<dl><div><dt>管理列表冲突</dt><dd>' + databaseCount + ' 项</dd></div>' +
+            '<div><dt>本批次重复金额</dt><dd>' + batchCount + ' 组</dd></div></dl>' +
+            '<p class="qr-conflict-note">全部替换时，同金额以最后选择的图片为准；替换只更新二维码内容。</p>' +
+        '</div>';
+    }
+
+    function chooseConflictMode(preview) {
+        return new Promise(function (resolve, reject) {
+            if (typeof layer === 'undefined' || !layer.open) {
+                reject(new Error('冲突确认组件未加载'));
+                return;
+            }
+            var settled = false;
+            var index = layer.open({
+                type: 1,
+                title: '处理重复金额',
+                area: [Math.min(620, window.innerWidth - 32) + 'px', 'auto'],
+                content: conflictSummaryHtml(preview),
+                btn: ['全部替换', '逐个确认', '全部放弃冲突项'],
+                yes: function () {
+                    settled = true;
+                    layer.close(index);
+                    resolve('replace_all');
+                },
+                btn2: function () {
+                    settled = true;
+                    layer.close(index);
+                    resolve('individual');
+                    return false;
+                },
+                btn3: function () {
+                    settled = true;
+                    layer.close(index);
+                    resolve('skip_all');
+                    return false;
+                },
+                cancel: function () {
+                    if (!settled) {
+                        var error = new Error('已取消保存');
+                        error.cancelled = true;
+                        reject(error);
+                    }
+                }
+            });
+        });
+    }
+
+    function confirmIndividualConflict(current, candidate, conflict, itemById, paymentLabel) {
+        return new Promise(function (resolve, reject) {
+            if (typeof layer === 'undefined' || !layer.confirm) {
+                reject(new Error('冲突确认组件未加载'));
+                return;
+            }
+            var currentLocal = current && itemById[current.client_id];
+            var candidateLocal = itemById[candidate.client_id];
+            var currentText = conflict.kind === 'database'
+                ? '管理列表现有二维码 #' + escapeHtml(conflict.existing_id)
+                : escapeHtml((currentLocal && currentLocal.file.name) || current.pay_url);
+            var candidateText = escapeHtml((candidateLocal && candidateLocal.file.name) || candidate.pay_url);
+            var content = '<div class="qr-conflict-review">' +
+                '<p><strong>' + escapeHtml(paymentLabel) + ' · ' + escapeHtml(candidate.price) + ' 元</strong></p>' +
+                '<dl><div><dt>当前保留</dt><dd>' + currentText + '</dd></div>' +
+                '<div><dt>待处理图片</dt><dd>' + candidateText + '</dd></div></dl>' +
+                '<p>是否用待处理图片替换当前二维码？</p></div>';
+            var settled = false;
+            var index = layer.confirm(content, {
+                title: '逐个确认重复金额',
+                area: [Math.min(560, window.innerWidth - 32) + 'px', 'auto'],
+                btn: ['替换', '放弃'],
+                cancel: function () {
+                    if (!settled) {
+                        var error = new Error('已取消保存');
+                        error.cancelled = true;
+                        reject(error);
+                    }
+                }
+            }, function () {
+                settled = true;
+                layer.close(index);
+                resolve('replace');
+            }, function () {
+                settled = true;
+                resolve('skip');
+            });
+        });
+    }
+
     function mountUpload(options) {
         var root = typeof options.root === 'string' ? document.querySelector(options.root) : options.root;
         if (!root) { return null; }
 
         var type = Number(options.type) === 2 ? 2 : 1;
         var label = type === 1 ? '微信收款码' : '支付宝收款码';
-        var endpoint = API_ROOT + (type === 1 ? '/wechat' : '/alipay');
         var items = [];
         var nextLocalId = 1;
         var maxItems = 20;
+        var commitInFlight = false;
 
         root.innerHTML = '<div class="qr-page-toolbar">' +
             '<div><h2>' + label + '</h2><span class="qr-toolbar-status" data-role="summary">0 个文件</span></div>' +
@@ -562,7 +768,7 @@
         function render() {
             renderUploadItems(itemContainer, items);
             summary.textContent = items.length + ' 个文件';
-            saveButton.disabled = isBusy();
+            saveButton.disabled = isBusy() || commitInFlight;
 
             Array.prototype.forEach.call(itemContainer.querySelectorAll('[data-field="url"]'), function (field) {
                 field.addEventListener('input', function () {
@@ -598,7 +804,7 @@
                 button.addEventListener('click', function () {
                     var id = button.closest('[data-id]').getAttribute('data-id');
                     var item = findItem(id);
-                    if (!item) { return; }
+                    if (!item || item.commitLocked) { return; }
                     recognitionQueue.remove(id);
                     revokePreview(item);
                     items = items.filter(function (candidate) { return candidate.id !== id; });
@@ -659,6 +865,7 @@
                 message('请等待识别完成');
                 return;
             }
+            if (commitInFlight) { return; }
             for (var i = 0; i < items.length; i++) {
                 if (!items[i].url) {
                     message('序号 ' + (i + 1) + ' 未识别到二维码内容');
@@ -670,25 +877,87 @@
                 }
             }
 
-            var loading = layer.load(1);
             var batch = items.slice();
-            runPool(batch, 2, function (item) {
-                return request({
-                    url: endpoint,
-                    method: 'POST',
-                    data: {pay_url: item.url, price: item.amount}
-                }).then(function () {
-                    item.saved = true;
+            var itemById = {};
+            var payloadItems = batch.map(function (item) {
+                item.commitLocked = true;
+                itemById[item.id] = item;
+                return {client_id: item.id, pay_url: item.url.trim(), price: item.amount.trim()};
+            });
+            commitInFlight = true;
+            render();
+
+            function commitPreview(preview) {
+                var modePromise = preview.has_conflicts
+                    ? chooseConflictMode(preview)
+                    : Promise.resolve('replace_all');
+                return modePromise.then(function (mode) {
+                    return buildConflictDecisions(preview, mode, function (current, candidate, conflict) {
+                        return confirmIndividualConflict(current, candidate, conflict, itemById, label);
+                    });
+                }).then(function (decisions) {
+                    return request({
+                        url: API_ROOT + '/batch/commit',
+                        method: 'POST',
+                        data: {
+                            type: type,
+                            items: payloadItems,
+                            conflict_token: preview.conflict_token,
+                            decisions: decisions
+                        }
+                    });
                 }, function (error) {
-                    item.error = error.message;
-                    item.status = 'error';
+                    throw error;
+                }).catch(function (error) {
+                    if (error.code === 409 && error.data && error.data.preview) {
+                        return commitPreview(error.data.preview);
+                    }
+                    throw error;
                 });
-            }).then(function () {
-                layer.close(loading);
-                batch.filter(function (item) { return item.saved; }).forEach(revokePreview);
-                items = items.filter(function (item) { return !item.saved; });
+            }
+
+            request({
+                url: API_ROOT + '/batch/preview',
+                method: 'POST',
+                data: {type: type, items: payloadItems}
+            }).then(commitPreview).then(function (result) {
+                var resultById = {};
+                (result.results || []).forEach(function (entry) {
+                    resultById[entry.client_id] = entry;
+                });
+                var removeIds = {};
+                batch.forEach(function (snapshotItem) {
+                    var current = findItem(snapshotItem.id);
+                    var entry = resultById[snapshotItem.id];
+                    if (!current) { return; }
+                    current.commitLocked = false;
+                    if (entry && (entry.status === 'inserted' || entry.status === 'replaced')) {
+                        current.status = 'saved';
+                        revokePreview(current);
+                        removeIds[current.id] = true;
+                    } else if (entry && entry.status === 'skipped') {
+                        current.status = 'skipped';
+                        revokePreview(current);
+                        removeIds[current.id] = true;
+                    } else {
+                        current.status = 'error';
+                        current.error = (entry && entry.message) || '服务器未返回该二维码的保存结果';
+                    }
+                });
+                items = items.filter(function (item) { return !removeIds[item.id]; });
+                commitInFlight = false;
                 render();
-                message(items.length ? '部分二维码保存失败，请检查错误信息' : '二维码保存成功');
+                var totals = result.totals || {};
+                message('新增 ' + (totals.inserted || 0) + '，替换 ' + (totals.replaced || 0) +
+                    '，放弃 ' + (totals.skipped || 0) + '，失败 ' + (totals.failed || 0));
+            }, function (error) {
+                batch.forEach(function (item) {
+                    var current = findItem(item.id);
+                    if (current) { current.commitLocked = false; }
+                });
+                commitInFlight = false;
+                render();
+                if (!error.cancelled) { message(error.message); }
             });
         });
 
@@ -712,6 +981,7 @@
         analyzeFiles: analyzeFiles,
         appendFiles: appendFiles,
         bindDropTarget: bindDropTarget,
+        buildConflictDecisions: buildConflictDecisions,
         createRecognitionQueue: createRecognitionQueue,
         dependencyHelpHtml: dependencyHelpHtml,
         escapeHtml: escapeHtml,
@@ -720,6 +990,7 @@
         mount: mountUpload,
         mountUpload: mountUpload,
         request: request,
+        responseError: responseError,
         runPool: runPool,
         showDependencyHelp: showDependencyHelp,
         partitionImageFiles: partitionImageFiles,
