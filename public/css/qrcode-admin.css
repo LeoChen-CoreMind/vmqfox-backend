@@ -3,6 +3,27 @@
     width: 100%;
 }
 
+.qr-admin--upload {
+    min-height: calc(100vh - 150px);
+    position: relative;
+}
+
+.qr-admin--upload::after {
+    align-items: center;
+    background: rgba(255, 255, 255, 0.94);
+    border: 2px dashed #1f6f50;
+    color: #174f3a;
+    content: '释放图片以加入识别队列';
+    display: none;
+    inset: 0;
+    justify-content: center;
+    pointer-events: none;
+    position: absolute;
+    z-index: 20;
+}
+
+.qr-admin--upload.is-dragging::after { display: flex; }
+
 .qr-page-toolbar {
     align-items: center;
     border-bottom: 1px solid #dfe3e8;
@@ -126,6 +147,17 @@
 .qr-status.is-error {
     background: #fdecec;
     color: #a52a2a;
+}
+
+.qr-status.is-processing,
+.qr-status.is-queued {
+    background: #eef1f4;
+    color: #56616b;
+}
+
+.qr-status.is-ready {
+    background: #fff6df;
+    color: #7a5400;
 }
 
 .qr-icon-btn {

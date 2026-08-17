@@ -53,6 +53,168 @@
         });
     }
 
+    function fileIdentity(file) {
+        return [file.name, Number(file.size) || 0, Number(file.lastModified) || 0].join('\u0000');
+    }
+
+    function partitionImageFiles(files) {
+        var accepted = [];
+        var rejected = [];
+        Array.prototype.forEach.call(files || [], function (file) {
+            var type = String(file.type || '').toLowerCase();
+            var name = String(file.name || '');
+            if (type.indexOf('image/') === 0 || /\.(?:jpe?g|png|webp)$/i.test(name)) {
+                accepted.push(file);
+            } else {
+                rejected.push(file);
+            }
+        });
+        return {accepted: accepted, rejected: rejected};
+    }
+
+    function appendFiles(items, files, createItem, maxItems) {
+        var result = items.slice();
+        var existing = {};
+        var added = [];
+        var ignored = 0;
+        var rejected = 0;
+        result.forEach(function (item) { existing[fileIdentity(item.file)] = true; });
+
+        Array.prototype.forEach.call(files || [], function (file, index) {
+            var key = fileIdentity(file);
+            if (existing[key]) {
+                ignored++;
+                return;
+            }
+            if (result.length >= maxItems) {
+                rejected++;
+                return;
+            }
+            var item = createItem(file, index);
+            existing[key] = true;
+            result.push(item);
+            added.push(item);
+        });
+
+        return {items: result, added: added, ignored: ignored, rejected: rejected};
+    }
+
+    function createRecognitionQueue(worker, concurrency, onChange) {
+        var pending = [];
+        var active = 0;
+        var records = {};
+        var idleWaiters = [];
+        concurrency = Math.min(2, Math.max(1, Number(concurrency) || 1));
+
+        function settleIdle() {
+            if (active || pending.length) { return; }
+            idleWaiters.splice(0).forEach(function (resolve) { resolve(); });
+        }
+
+        function pump() {
+            while (active < concurrency && pending.length) {
+                (function (id) {
+                    var item = records[id];
+                    if (!item || item.cancelled) { return; }
+                    active++;
+                    item.status = 'processing';
+                    onChange(item);
+                    Promise.resolve().then(function () {
+                        return worker(item);
+                    }).then(function (result) {
+                        if (records[id] === item && !item.cancelled) {
+                            Object.keys(result || {}).forEach(function (key) { item[key] = result[key]; });
+                            item.status = 'ready';
+                            item.error = '';
+                            onChange(item);
+                        }
+                    }, function (error) {
+                        if (records[id] === item && !item.cancelled) {
+                            item.status = 'error';
+                            item.error = error.message;
+                            onChange(item);
+                        }
+                    }).then(function () {
+                        active--;
+                        pump();
+                        settleIdle();
+                    });
+                }(pending.shift()));
+            }
+            settleIdle();
+        }
+
+        function enqueue(items) {
+            items.forEach(function (item) {
+                records[item.id] = item;
+                pending.push(item.id);
+            });
+            pump();
+        }
+
+        function remove(id) {
+            if (records[id]) {
+                records[id].cancelled = true;
+                delete records[id];
+            }
+            pending = pending.filter(function (pendingId) { return pendingId !== id; });
+            settleIdle();
+        }
+
+        function whenIdle() {
+            if (!active && !pending.length) { return Promise.resolve(); }
+            return new Promise(function (resolve) { idleWaiters.push(resolve); });
+        }
+
+        return {enqueue: enqueue, remove: remove, whenIdle: whenIdle};
+    }
+
+    function bindDropTarget(root, onFiles, onState) {
+        var depth = 0;
+
+        function isFileDrag(event) {
+            var types = event.dataTransfer && event.dataTransfer.types;
+            return !types || Array.prototype.indexOf.call(types, 'Files') !== -1;
+        }
+        function enter(event) {
+            if (!isFileDrag(event)) { return; }
+            event.preventDefault();
+            depth++;
+            onState(true);
+        }
+        function over(event) {
+            if (!isFileDrag(event)) { return; }
+            event.preventDefault();
+        }
+        function leave(event) {
+            if (!isFileDrag(event)) { return; }
+            event.preventDefault();
+            depth = Math.max(0, depth - 1);
+            if (!depth) { onState(false); }
+        }
+        function drop(event) {
+            if (!isFileDrag(event)) { return; }
+            event.preventDefault();
+            depth = 0;
+            onState(false);
+            onFiles(Array.prototype.slice.call((event.dataTransfer && event.dataTransfer.files) || []));
+        }
+
+        root.addEventListener('dragenter', enter);
+        root.addEventListener('dragover', over);
+        root.addEventListener('dragleave', leave);
+        root.addEventListener('drop', drop);
+
+        return function () {
+            root.removeEventListener('dragenter', enter);
+            root.removeEventListener('dragover', over);
+            root.removeEventListener('dragleave', leave);
+            root.removeEventListener('drop', drop);
+            depth = 0;
+            onState(false);
+        };
+    }
+
     function getJquery() {
         if (typeof window === 'undefined') {
             return null;
@@ -241,12 +403,14 @@
             return '<div class="qr-empty">尚未选择图片</div>';
         }
 
-        return items.map(function (item, index) {
+        return items.map(function (item) {
             var statusClass = item.status === 'error'
                 ? ' is-error'
-                : (item.amountStatus === 'detected' ? ' is-success' : '');
+                : (item.status === 'processing' ? ' is-processing'
+                    : (item.status === 'queued' ? ' is-queued'
+                        : (item.amountStatus === 'detected' ? ' is-success' : ' is-ready')));
             var detail = item.error || item.warning || (item.decoder ? '识别引擎：' + item.decoder : '等待处理');
-            return '<article class="qr-card qr-upload-card" data-index="' + index + '">' +
+            return '<article class="qr-card qr-upload-card" data-id="' + escapeHtml(item.id) + '">' +
                 '<img class="qr-card__image" src="' + escapeHtml(item.preview) + '" alt="二维码预览">' +
                 '<div class="qr-card__content">' +
                     '<div class="qr-card__heading">' +
@@ -333,7 +497,8 @@
         var label = type === 1 ? '微信收款码' : '支付宝收款码';
         var endpoint = API_ROOT + (type === 1 ? '/wechat' : '/alipay');
         var items = [];
-        var selectionVersion = 0;
+        var nextLocalId = 1;
+        var maxItems = 20;
 
         root.innerHTML = '<div class="qr-page-toolbar">' +
             '<div><h2>' + label + '</h2><span class="qr-toolbar-status" data-role="summary">0 个文件</span></div>' +
@@ -345,20 +510,64 @@
             '</div>' +
         '</div><div class="qr-card-grid qr-upload-list" data-role="items"></div>';
 
+        root.classList.add('qr-admin--upload');
+
         var input = root.querySelector('[data-role="file"]');
         var itemContainer = root.querySelector('[data-role="items"]');
         var summary = root.querySelector('[data-role="summary"]');
+        var saveButton = root.querySelector('[data-action="save"]');
+
+        function findItem(id) {
+            for (var i = 0; i < items.length; i++) {
+                if (items[i].id === id) { return items[i]; }
+            }
+            return null;
+        }
+
+        function isBusy() {
+            return items.some(function (item) {
+                return item.status === 'queued' || item.status === 'processing';
+            });
+        }
+
+        function revokePreview(item) {
+            if (item.previewObjectUrl) {
+                URL.revokeObjectURL(item.previewObjectUrl);
+                item.previewObjectUrl = '';
+            }
+        }
+
+        function message(text) {
+            if (typeof layer !== 'undefined' && layer.msg) { layer.msg(text); }
+        }
+
+        var recognitionQueue = createRecognitionQueue(function (item) {
+            return analyzeFile(item.file).then(function (result) {
+                return {
+                    url: result.url || '',
+                    amount: result.amount || '',
+                    amountStatus: result.amount_status || 'manual',
+                    decoder: result.decoder || '',
+                    warning: result.warning || ''
+                };
+            });
+        }, 2, function () {
+            render();
+        });
 
         function render() {
             renderUploadItems(itemContainer, items);
             summary.textContent = items.length + ' 个文件';
+            saveButton.disabled = isBusy();
 
             Array.prototype.forEach.call(itemContainer.querySelectorAll('[data-field="url"]'), function (field) {
                 field.addEventListener('input', function () {
-                    var card = field.closest('[data-index]');
-                    var item = items[Number(card.getAttribute('data-index'))];
+                    var card = field.closest('[data-id]');
+                    var item = findItem(card.getAttribute('data-id'));
+                    if (!item) { return; }
                     item.url = field.value.trim();
                     if (item.url) {
+                        recognitionQueue.remove(item.id);
                         item.status = 'ready';
                         item.error = '';
                         item.warning = '已手工填写收款链接';
@@ -370,102 +579,90 @@
             });
             Array.prototype.forEach.call(itemContainer.querySelectorAll('[data-field="amount"]'), function (field) {
                 field.addEventListener('input', function () {
-                    var item = items[Number(field.closest('[data-index]').getAttribute('data-index'))];
+                    var item = findItem(field.closest('[data-id]').getAttribute('data-id'));
+                    if (!item) { return; }
                     item.amount = field.value.trim();
                     item.amountStatus = 'manual';
                 });
             });
             Array.prototype.forEach.call(itemContainer.querySelectorAll('[data-action="remove"]'), function (button) {
                 button.addEventListener('click', function () {
-                    var index = Number(button.closest('[data-index]').getAttribute('data-index'));
-                    if (items[index].previewObjectUrl) {
-                        URL.revokeObjectURL(items[index].previewObjectUrl);
-                    }
-                    items.splice(index, 1);
+                    var id = button.closest('[data-id]').getAttribute('data-id');
+                    var item = findItem(id);
+                    if (!item) { return; }
+                    recognitionQueue.remove(id);
+                    revokePreview(item);
+                    items = items.filter(function (candidate) { return candidate.id !== id; });
                     render();
                 });
             });
         }
 
-        function selectFiles(fileList) {
-            var version = ++selectionVersion;
-            items.forEach(function (item) {
-                if (item.previewObjectUrl) { URL.revokeObjectURL(item.previewObjectUrl); }
-            });
-            items = Array.prototype.slice.call(fileList).map(function (file) {
-                var preview = URL.createObjectURL(file);
-                return {
-                    file: file,
-                    preview: preview,
-                    previewObjectUrl: preview,
-                    url: '',
-                    amount: '',
-                    amountStatus: 'manual',
-                    status: 'queued',
-                    error: ''
-                };
-            });
-            render();
-            var batch = items.slice();
-
-            analyzeFiles(batch.map(function (item) { return item.file; }), {
-                onItemStart: function (file, index) {
-                    var item = batch[index];
-                    if (version !== selectionVersion || items.indexOf(item) === -1) { return; }
-                    item.status = 'processing';
-                    render();
-                },
-                onItemDone: function (result, file, index) {
-                    var item = batch[index];
-                    if (version !== selectionVersion || items.indexOf(item) === -1) { return; }
-                    item.url = result.url || '';
-                    item.amount = result.amount || '';
-                    item.amountStatus = result.amount_status || 'manual';
-                    item.decoder = result.decoder || '';
-                    item.warning = result.warning || '';
-                    item.status = 'ready';
-                    render();
-                },
-                onItemError: function (error, file, index) {
-                    var item = batch[index];
-                    if (version !== selectionVersion || items.indexOf(item) === -1) { return; }
-                    item.status = 'error';
-                    item.error = error.message;
-                    render();
-                }
-            });
+        function createItem(file) {
+            var preview = URL.createObjectURL(file);
+            return {
+                id: 'local-' + nextLocalId++,
+                file: file,
+                preview: preview,
+                previewObjectUrl: preview,
+                url: '',
+                amount: '',
+                amountStatus: 'manual',
+                status: 'queued',
+                error: ''
+            };
         }
+
+        function ingestFiles(fileList) {
+            var partition = partitionImageFiles(fileList);
+            var result = appendFiles(items, partition.accepted, createItem, maxItems);
+            items = result.items;
+            if (partition.rejected.length) {
+                message('已忽略 ' + partition.rejected.length + ' 个非图片文件');
+            }
+            if (result.ignored) {
+                message('已忽略 ' + result.ignored + ' 个重复图片');
+            }
+            if (result.rejected) {
+                message('最多可添加 ' + maxItems + ' 张图片，已忽略 ' + result.rejected + ' 张');
+            }
+            render();
+            recognitionQueue.enqueue(result.added);
+        }
+
+        var removeDropTarget = bindDropTarget(root, ingestFiles, function (active) {
+            root.classList.toggle('is-dragging', active);
+        });
 
         root.querySelector('[data-action="select"]').addEventListener('click', function () { input.click(); });
         root.querySelector('[data-action="dependencies"]').addEventListener('click', showDependencyHelp);
         input.addEventListener('change', function () {
-            selectFiles(input.files || []);
+            ingestFiles(input.files || []);
             input.value = '';
         });
 
-        root.querySelector('[data-action="save"]').addEventListener('click', function () {
+        saveButton.addEventListener('click', function () {
             if (!items.length) {
-                layer.msg('请先选择二维码图片');
+                message('请先选择二维码图片');
+                return;
+            }
+            if (isBusy()) {
+                message('请等待识别完成');
                 return;
             }
             for (var i = 0; i < items.length; i++) {
-                if (items[i].status === 'processing' || items[i].status === 'queued') {
-                    layer.msg('请等待识别完成');
-                    return;
-                }
                 if (!items[i].url) {
-                    layer.msg('序号 ' + (i + 1) + ' 未识别到二维码内容');
+                    message('序号 ' + (i + 1) + ' 未识别到二维码内容');
                     return;
                 }
                 if (!isValidAmount(items[i].amount)) {
-                    layer.msg('序号 ' + (i + 1) + ' 的金额有误');
+                    message('序号 ' + (i + 1) + ' 的金额有误');
                     return;
                 }
             }
 
             var loading = layer.load(1);
             var batch = items.slice();
-            var version = selectionVersion;
             runPool(batch, 2, function (item) {
                 return request({
                     url: endpoint,
@@ -479,33 +676,44 @@
                 });
             }).then(function () {
                 layer.close(loading);
-                if (version !== selectionVersion) {
-                    return;
-                }
-                var failed = batch.filter(function (item) { return !item.saved; });
-                batch.filter(function (item) { return item.saved; }).forEach(function (item) {
-                    if (item.previewObjectUrl) { URL.revokeObjectURL(item.previewObjectUrl); }
-                });
-                items = failed;
+                batch.filter(function (item) { return item.saved; }).forEach(revokePreview);
+                items = items.filter(function (item) { return !item.saved; });
                 render();
-                layer.msg(failed.length ? '部分二维码保存失败，请检查错误信息' : '二维码保存成功');
+                message(items.length ? '部分二维码保存失败，请检查错误信息' : '二维码保存成功');
             });
         });
 
         render();
-        return {getItems: function () { return items.slice(); }};
+        return {
+            destroy: function () {
+                removeDropTarget();
+                items.forEach(function (item) {
+                    recognitionQueue.remove(item.id);
+                    revokePreview(item);
+                });
+                items = [];
+                root.classList.remove('is-dragging');
+                root.classList.remove('qr-admin--upload');
+            },
+            getItems: function () { return items.slice(); }
+        };
     }
 
     return {
         analyzeFiles: analyzeFiles,
+        appendFiles: appendFiles,
+        bindDropTarget: bindDropTarget,
+        createRecognitionQueue: createRecognitionQueue,
         dependencyHelpHtml: dependencyHelpHtml,
         escapeHtml: escapeHtml,
+        fileIdentity: fileIdentity,
         isValidAmount: isValidAmount,
         mount: mountUpload,
         mountUpload: mountUpload,
         request: request,
         runPool: runPool,
         showDependencyHelp: showDependencyHelp,
+        partitionImageFiles: partitionImageFiles,
         uploadItemsHtml: uploadItemsHtml
     };
 }));
