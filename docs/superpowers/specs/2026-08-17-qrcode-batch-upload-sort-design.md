@@ -15,6 +15,16 @@ Extend the WeChat and Alipay QR administration pages with additive multi-image s
 - QR content and amount remain editable after automatic recognition.
 - Queue states are: queued, processing, ready, error, skipped, and saved.
 
+## Drag and Drop
+
+- The entire WeChat or Alipay add page is a drop target while that page is mounted.
+- A drag-over state clearly tells the user to release the files to add them; it clears on drop, drag leave, or page navigation.
+- One drop may contain multiple image files. Dropped files and picker-selected files use the same append, exact-file deduplication, 20-item total cap, and two-worker recognition queue.
+- The 20-item limit applies to the combined current queue, not separately to each selection or drop.
+- Non-image files are rejected with a visible message and do not consume queue capacity.
+- Files within the remaining capacity are accepted even when other files in the same drop are duplicates, non-images, or beyond the cap.
+- Drag-and-drop listeners are scoped to the mounted add page and are removed when the administrator navigates away, so management and other pages do not intercept file drops.
+
 ## Duplicate Scope
 
 - WeChat uploads compare only with existing WeChat records.
@@ -105,7 +115,7 @@ WeChat and Alipay pages store their last selected sort independently in browser 
 
 ## Testing
 
-Frontend tests cover additive selections, exact-file deduplication, the 20-item cap, two-worker recognition, every conflict decision mode, queue retention on failure, and sort persistence.
+Frontend tests cover additive picker selections and multi-file drops, whole-page drag state, non-image rejection, listener cleanup, exact-file deduplication, the combined 20-item cap, two-worker recognition, every conflict decision mode, queue retention on failure, and sort persistence.
 
 Backend tests cover normalized duplicate detection, payment-type isolation, upload-only duplicate groups, replace-in-place behavior, transaction rollback, stale decisions, shared write locking, sort-token whitelisting, and stable paginated order.
 
