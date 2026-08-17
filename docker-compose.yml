@@ -22,6 +22,8 @@ services:
     container_name: vmqfox-backend
     ports:
       - "${VMQ_BACKEND_PORT:-8000}:8000"
+    volumes:
+      - runtime_data:/var/www/html/runtime
     restart: unless-stopped
     environment:
       TZ: "${VMQ_TIMEZONE:-Asia/Shanghai}"
@@ -101,6 +103,8 @@ volumes:
   mysql_data:
     driver: local
   redis_data:
+    driver: local
+  runtime_data:
     driver: local
 
 networks:

@@ -8,6 +8,26 @@ VMQFox 的 PHP / ThinkPHP 8 后端，提供订单、微信/支付宝收款二维
 [![ThinkPHP](https://img.shields.io/badge/ThinkPHP-8-brightgreen)](https://www.thinkphp.cn/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+## 2026 首次安装向导
+
+部署后把网站运行目录指向 `public/`。当 Composer 依赖、`.env`、数据库初始化或安装锁缺失时，访问网站会自动跳转到 `/install/`。安装向导会完成数据库连接、必要时创建数据库、导入 `vmq.sql`、生成随机通信密钥、使用 `PASSWORD_DEFAULT` 保存管理员密码，并在 `runtime/install.lock` 写入安装锁。
+
+网页安装器不会执行 `apt`、Docker、systemctl 或宝塔面板命令。主机依赖使用仓库脚本安装：
+
+```bash
+# Docker Compose
+bash scripts/install.sh --mode docker
+
+# 宝塔 / Debian / Ubuntu（root 终端）
+bash scripts/install.sh --mode baota
+```
+
+宝塔脚本会扫描当前 CLI PHP 和 `/www/server/php/*/bin/php`，列出所有满足 `PHP >= 8.2` 的候选版本，并在终端让你选择网站实际使用的 PHP。自动化部署可用 `VMQ_PHP_BIN=/www/server/php/你的版本/bin/php` 或 `VMQ_PHP_VERSION=8.3` 指定；非交互执行才会选择扫描到的最高版本。脚本完成后必须在宝塔重启网站实际使用的 PHP-FPM 服务，然后访问 `https://你的域名/install/`。如果 `zbarimg` 或 Tesseract 仍显示“未检测到”，先从对应 PHP 版本的禁用函数中移除 `proc_open`，保存并重启 PHP；未移除并重启前网页进程无法检测这些命令。
+
+安装器不会覆盖已有 `.env`。中断后可保留现有配置再次打开 `/install/`；只有确认数据库初始化失败且尚未生成 `runtime/install.lock` 时，才由服务器管理员备份后手动调整 `.env`。安装锁生成后，网页会拒绝重复安装。
+
+安装前会检查 `pay_order`、`pay_qrcode`、`setting`、`tmp_price` 四张核心表。四张表都存在时页面会显示“已检测到数据库”，并默认勾选“跳过已导入的数据库结构”；未检测到完整结构时才导入 `vmq.sql`。取消跳过选项不会覆盖旧表，安装器会直接提示先确认数据库状态。
+
 ## 主要功能
 
 - ThinkPHP 8 后端，兼容现有旧版接口和新的 `/api/*` 接口。
@@ -226,7 +246,8 @@ server {
     location ~ \.php$ {
         include fastcgi_params;
         fastcgi_param SCRIPT_FILENAME $document_root$fastcgi_script_name;
-        fastcgi_pass unix:/run/php/php8.2-fpm.sock;
+        # Replace X.Y with the PHP-FPM socket selected by the installer scan.
+        fastcgi_pass unix:/run/php/phpX.Y-fpm.sock;
     }
 
     location ~ ^/(\.env|\.git|app|config|runtime|vendor) {

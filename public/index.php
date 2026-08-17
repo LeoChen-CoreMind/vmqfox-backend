@@ -12,7 +12,15 @@ use think\App;
 
 // [ 应用入口文件 ]
 
-require __DIR__ . '/../vendor/autoload.php';
+$root = dirname(__DIR__);
+require_once $root . '/app/service/Installer.php';
+$installStatus = \app\service\Installer::status($root);
+if (!$installStatus['ready']) {
+    header('Location: /install/');
+    exit;
+}
+
+require $root . '/vendor/autoload.php';
 
 // 处理URL大小写问题
 if (isset($_SERVER['PATH_INFO']) && strpos($_SERVER['PATH_INFO'], '/Admin/') !== false) {

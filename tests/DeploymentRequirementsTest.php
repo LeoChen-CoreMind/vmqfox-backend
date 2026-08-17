@@ -13,6 +13,21 @@ test('Composer platform requirements match the PHP runtime', function (): void {
     assertSameValue('*', $lock['platform']['ext-bcmath'] ?? null);
 });
 
+test('release contains a first-run installer outside the framework bootstrap', function (): void {
+    $root = dirname(__DIR__);
+    assertSameValue(true, is_file($root . '/app/service/Installer.php'));
+    assertSameValue(true, is_file($root . '/public/install/index.php'));
+    assertSameValue(false, is_file($root . '/public/install.lock'));
+    assertSameValue(false, is_file($root . '/runtime/install.lock'));
+
+    $entry = file_get_contents($root . '/public/install/index.php');
+    assertSameValue(false, str_contains($entry, 'vendor/autoload.php'));
+    assertSameValue(true, str_contains($entry, 'installer-nonce'));
+
+    $compose = file_get_contents($root . '/docker-compose.yml');
+    assertSameValue(true, str_contains($compose, 'runtime_data:/var/www/html/runtime'));
+});
+
 test('Docker and Linux installation include BCMath', function (): void {
     $root = dirname(__DIR__);
     $dockerfile = file_get_contents($root . '/Dockerfile');
