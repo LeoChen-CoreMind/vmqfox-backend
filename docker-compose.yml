@@ -1,7 +1,7 @@
 services:
   # VMQFox 前端服务
   vmqfox-frontend:
-    image: hulisang/vmqfox-frontend:latest
+    image: hulisang/vmqfox-frontend@sha256:4ae8fdea55298c45bff5ffca70943ce03224b702a29e1b8bc051939df6f8a841
     container_name: vmqfox-frontend
     ports:
       - "${VMQ_FRONTEND_PORT:-3006}:80"
@@ -25,6 +25,7 @@ services:
     restart: unless-stopped
     environment:
       TZ: "${VMQ_TIMEZONE:-Asia/Shanghai}"
+      APP_TIMEZONE: "${VMQ_TIMEZONE:-Asia/Shanghai}"
       APP_DEBUG: "${VMQ_APP_DEBUG:-false}"
       APP_TRACE: "false"
       APP_FRONTEND_URL: "${VMQ_FRONTEND_URL:-http://localhost:3006}"

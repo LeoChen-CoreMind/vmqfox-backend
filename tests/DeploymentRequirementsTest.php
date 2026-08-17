@@ -51,3 +51,37 @@ test('public release removes bundled clients and unsafe payment demos', function
     assertSameValue(false, str_contains($apiPage, '测试支付页面'));
     assertSameValue(true, str_contains($readme, 'KSU 模块与监控 APK 不能同时使用'));
 });
+
+test('deployment pins images and enforces TLS CORS and utf8mb4 defaults', function (): void {
+    $root = dirname(__DIR__);
+    $compose = file_get_contents($root . '/docker-compose.yml');
+    $sql = file_get_contents($root . '/vmq.sql');
+    $cors = file_get_contents($root . '/app/middleware/CORS.php');
+    $apiMonitor = file_get_contents($root . '/app/controller/api/Monitor.php');
+    $legacyMonitor = file_get_contents($root . '/app/controller/index/Index.php');
+    $appConfig = file_get_contents($root . '/config/app.php');
+
+    assertSameValue(true, str_contains(
+        $compose,
+        'hulisang/vmqfox-frontend@sha256:4ae8fdea55298c45bff5ffca70943ce03224b702a29e1b8bc051939df6f8a841'
+    ));
+    assertSameValue(false, str_contains($compose, 'vmqfox-frontend:latest'));
+    assertSameValue(false, str_contains($sql, 'ENGINE=MyISAM'));
+    assertSameValue(false, str_contains($sql, 'DEFAULT CHARSET=utf8;'));
+    assertSameValue(true, substr_count($sql, 'ENGINE=InnoDB DEFAULT CHARSET=utf8mb4') >= 4);
+
+    $optionsCheck = strpos($cors, 'strtoupper($request->method()) === "OPTIONS"');
+    $controllerCall = strpos($cors, '$next($request)');
+    assertSameValue(true, $optionsCheck !== false && $controllerCall !== false && $optionsCheck < $controllerCall);
+
+    foreach ([$apiMonitor, $legacyMonitor] as $controller) {
+        assertSameValue(false, str_contains($controller, 'CURLOPT_SSL_VERIFYPEER, false'));
+        assertSameValue(false, str_contains($controller, 'CURLOPT_SSL_VERIFYHOST, false'));
+        assertSameValue(true, str_contains($controller, 'CURLOPT_SSL_VERIFYPEER, true'));
+        assertSameValue(true, str_contains($controller, 'CURLOPT_SSL_VERIFYHOST, 2'));
+        assertSameValue(true, str_contains($controller, 'CURLOPT_FOLLOWLOCATION, false'));
+    }
+
+    assertSameValue(true, str_contains($appConfig, "getenv('APP_TIMEZONE')"));
+    assertSameValue(true, str_contains($appConfig, "getenv('TZ')"));
+});

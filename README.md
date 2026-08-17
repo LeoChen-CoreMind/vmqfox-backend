@@ -157,6 +157,7 @@ cp env.example .env
 编辑 `.env`：
 
 - 设置数据库地址、库名、账号和随机密码。
+- 设置随机 `ADMIN_USERNAME` 和长随机 `ADMIN_PASSWORD`，数据库中的管理员记录为空时会用它们完成首次初始化。
 - 生产环境保持 `APP_DEBUG = false` 和 `DEBUG = false`。
 - 使用上面的 Python 虚拟环境时，将 `QRCODE_PYTHON_BINARY` 改成：
 
@@ -171,7 +172,15 @@ mysql -u root -p -e "CREATE DATABASE vmq CHARACTER SET utf8mb4 COLLATE utf8mb4_u
 mysql -u root -p vmq < vmq.sql
 ```
 
-建议创建独立数据库用户，不要让网站长期使用 MySQL root 账号。
+创建仅供网站使用的最小权限数据库用户，不要让 PHP-FPM 长期使用 MySQL root 账号：
+
+```sql
+CREATE USER 'vmqfox'@'127.0.0.1' IDENTIFIED BY 'replace-with-a-random-password';
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE ON vmq.* TO 'vmqfox'@'127.0.0.1';
+FLUSH PRIVILEGES;
+```
+
+如果 PHP 通过 `localhost` 或 Unix socket 连接，请把授权主机同步改为 `localhost`。
 
 ### 4. 设置目录和权限
 
@@ -185,7 +194,10 @@ chown -R www-data:www-data /www/wwwroot/vmqfox-backend
 find /www/wwwroot/vmqfox-backend -type d -exec chmod 755 {} \;
 find /www/wwwroot/vmqfox-backend -type f -exec chmod 644 {} \;
 chmod -R 775 /www/wwwroot/vmqfox-backend/runtime
+chmod 600 /www/wwwroot/vmqfox-backend/.env
 ```
+
+`.env` 只应由部署用户和 PHP-FPM 运行用户读取，不要放在 `public/` 目录中。
 
 ### 5. 配置 Nginx
 
@@ -242,6 +254,18 @@ server {
 - 命令行执行的 `php` 可能和网站 PHP-FPM 不是同一个版本。
 - 安装 `php-xml` 后必须重启网站实际使用的 PHP-FPM。
 - 只重启 Nginx 不能代替重启 PHP-FPM。
+
+如果通过系统环境变量提供管理员凭据或二维码工具路径，需要确认 PHP-FPM 没有清除它们。可在网站使用的池配置中显式加入：
+
+```ini
+env[ADMIN_USERNAME] = replace-with-an-admin-username
+env[ADMIN_PASSWORD] = replace-with-a-long-random-password
+env[APP_TIMEZONE] = Asia/Shanghai
+env[QRCODE_ZBAR_BINARY] = /usr/bin/zbarimg
+env[QRCODE_TESSERACT_BINARY] = /usr/bin/tesseract
+```
+
+修改 PHP-FPM 池配置后必须重启对应 PHP-FPM 服务。
 
 ## 二维码识别
 

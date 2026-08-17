@@ -44,7 +44,7 @@ CREATE TABLE `pay_order` (
   `return_url` varchar(255) DEFAULT NULL,
   `state` int(11) NOT NULL,
   `type` int(11) NOT NULL
-) ENGINE=MyISAM DEFAULT CHARSET=utf8;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
 
@@ -58,7 +58,7 @@ CREATE TABLE `pay_qrcode` (
   `price` double NOT NULL,
   `type` int(11) NOT NULL,
   `state` int(11) NOT NULL DEFAULT '0' COMMENT '状态：0启用，1禁用'
-) ENGINE=MyISAM DEFAULT CHARSET=utf8;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
 
@@ -69,7 +69,7 @@ CREATE TABLE `pay_qrcode` (
 CREATE TABLE `setting` (
   `vkey` varchar(255) NOT NULL,
   `vvalue` varchar(255) DEFAULT NULL
-) ENGINE=MyISAM DEFAULT CHARSET=utf8;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- 转存表中的数据 `setting`
@@ -98,7 +98,7 @@ INSERT INTO `setting` (`vkey`, `vvalue`) VALUES
 CREATE TABLE `tmp_price` (
   `price` varchar(255) NOT NULL,
   `oid` varchar(255) NOT NULL
-) ENGINE=MyISAM DEFAULT CHARSET=utf8;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 --
 -- 转储表的索引
