@@ -103,57 +103,64 @@ class Order extends BaseController
         
         // 将分转换回元
         $reallyPrice = bcdiv($reallyPriceCent, 100, 2);
+
+        try {
+            $isAuto = 1; // 默认为自动模式 (is_auto=1)，需要用户手动输入金额
+            $payUrl = '';
+
+            // 1. 优先查找与浮动后金额完全匹配的二维码
+            $qrcode = Db::name("pay_qrcode")
+                ->where("price", $reallyPrice)
+                ->where("type", $type)
+                ->where("state", 0) // 确保二维码是启用的
+                ->find();
+
+            if ($qrcode) {
+                // 找到匹配的二维码，使用固定的URL
+                $payUrl = $qrcode['pay_url'];
+                $isAuto = 0; // 标记为非自动模式 (is_auto=0)，扫码后金额固定
+            } else {
+                // 2. 如果没有找到，降级使用全局配置的通用收款码
+                $settingKey = ($type == 1) ? 'wxpay' : 'zfbpay';
+                $payUrl = Db::name('setting')->where('vkey', $settingKey)->value('vvalue');
+            }
+
+            // 检查最终是否有可用的支付URL
+            if (empty($payUrl)) {
+                $payMethodName = ($type == 1) ? '微信' : '支付宝';
+                Db::name('tmp_price')->where('oid', $orderId)->delete();
+                return $this->error("暂无可用支付二维码，请在后台【系统设置】或【{$payMethodName}二维码】中配置");
+            }
         
-        $isAuto = 1; // 默认为自动模式 (is_auto=1)，需要用户手动输入金额
-        $payUrl = '';
-        
-        // 1. 优先查找与浮动后金额完全匹配的二维码
-        $qrcode = Db::name("pay_qrcode")
-            ->where("price", $reallyPrice)
-            ->where("type", $type)
-            ->where("state", 0) // 确保二维码是启用的
-            ->find();
-            
-        if ($qrcode) {
-            // 找到匹配的二维码，使用固定的URL
-            $payUrl = $qrcode['pay_url'];
-            $isAuto = 0; // 标记为非自动模式 (is_auto=0)，扫码后金额固定
-        } else {
-            // 2. 如果没有找到，降级使用全局配置的通用收款码
-            $settingKey = ($type == 1) ? 'wxpay' : 'zfbpay';
-            $payUrl = Db::name('setting')->where('vkey', $settingKey)->value('vvalue');
+            // 获取回调地址，如果请求中没有，则使用系统默认
+            $finalNotifyUrl = $notifyUrl ?: Db::name('setting')->where('vkey', 'notifyUrl')->value('vvalue');
+            $finalReturnUrl = $returnUrl ?: Db::name('setting')->where('vkey', 'returnUrl')->value('vvalue');
+
+            // 保存订单信息
+            $data = [
+                'pay_id' => $payId,
+                'order_id' => $orderId,
+                'create_date' => time(),
+                'type' => $type,
+                'price' => $price,
+                'really_price' => $reallyPrice,
+                'state' => 0,
+                'param' => $paramValue,
+                'pay_url' => $payUrl,
+                'is_auto' => $isAuto, // 增加 is_auto 字段
+                'notify_url' => $finalNotifyUrl,
+                'return_url' => $finalReturnUrl,
+                'pay_date' => 0,
+                'close_date' => 0 // 添加close_date字段，设为0
+            ];
+
+            $result = Db::name('pay_order')->insert($data);
+        } catch (\Throwable $e) {
+            Db::name('tmp_price')->where('oid', $orderId)->delete();
+            throw $e;
         }
-        
-        // 检查最终是否有可用的支付URL
-        if (empty($payUrl)) {
-            $payMethodName = ($type == 1) ? '微信' : '支付宝';
-            return $this->error("暂无可用支付二维码，请在后台【系统设置】或【{$payMethodName}二维码】中配置");
-        }
-        
-        // 获取回调地址，如果请求中没有，则使用系统默认
-        $finalNotifyUrl = $notifyUrl ?: Db::name('setting')->where('vkey', 'notifyUrl')->value('vvalue');
-        $finalReturnUrl = $returnUrl ?: Db::name('setting')->where('vkey', 'returnUrl')->value('vvalue');
-        
-        // 保存订单信息
-        $data = [
-            'pay_id' => $payId,
-            'order_id' => $orderId,
-            'create_date' => time(),
-            'type' => $type,
-            'price' => $price,
-            'really_price' => $reallyPrice,
-            'state' => 0,
-            'param' => $paramValue,
-            'pay_url' => $payUrl,
-            'is_auto' => $isAuto, // 增加 is_auto 字段
-            'notify_url' => $finalNotifyUrl,
-            'return_url' => $finalReturnUrl,
-            'pay_date' => 0,
-            'close_date' => 0 // 添加close_date字段，设为0
-        ];
-        
-        $result = Db::name('pay_order')->insert($data);
         if (!$result) {
+            Db::name('tmp_price')->where('oid', $orderId)->delete();
             return $this->error('创建订单失败');
         }
         

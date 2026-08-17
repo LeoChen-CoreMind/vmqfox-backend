@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>QR delete smoke test</title>
+</head>
+<body data-smoke="pending">
+    <section id="list"></section>
+    <script src="../../public/js/qrcode-admin.js"></script>
+    <script src="../../public/js/qrcode-list.js"></script>
+    <script>
+        var calls = [];
+        window.layer = {
+            alert: function () {},
+            close: function () {},
+            confirm: function (message, callback) { callback(1); },
+            msg: function () {}
+        };
+        QrAdmin.showDependencyHelp = function () {};
+        QrAdmin.request = function (options) {
+            calls.push(options);
+            if (calls.length === 1) {
+                return Promise.resolve({
+                    total: 1,
+                    page: 1,
+                    limit: 12,
+                    items: [{
+                        id: '17',
+                        price: '1.00',
+                        pay_url: 'https://qr.alipay.com/example',
+                        state: 0
+                    }]
+                });
+            }
+            if (options.url === 'index.php/api/qrcode/delete') {
+                return Promise.resolve({});
+            }
+            return Promise.resolve({total: 0, page: 1, limit: 12, items: []});
+        };
+
+        QrList.mount({root: '#list', type: 2});
+        setTimeout(function () {
+            document.querySelector('[data-action="delete"]').click();
+            setTimeout(function () {
+                var deletion = calls[1] || {};
+                var passed = deletion.url === 'index.php/api/qrcode/delete' &&
+                    deletion.method === 'POST' && deletion.data && deletion.data.id === '17';
+                document.body.setAttribute('data-smoke', passed ? 'pass' : 'fail');
+            }, 0);
+        }, 0);
+    </script>
+</body>
+</html>

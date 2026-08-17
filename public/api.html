@@ -25,6 +25,14 @@
     </div>
 </blockquote>
 
+<blockquote class="layui-elem-quote news_search">
+    <div class="layui-inline">
+        <p>监控端接口的 t 参数支持 10 位秒时间戳和 13 位毫秒时间戳，必须位于服务器当前时间前后 300 秒内。</p>
+        <p>签名计算必须使用客户端传入的原始 t 字符串；过期事件和重复提交的同一监控事件会被拒绝。</p>
+        <p>订单返回签名只会在订单处于已支付状态（state=1 或 state=2）时生成，未支付和已关闭订单不会返回签名。</p>
+    </div>
+</blockquote>
+
 <div class="layui-collapse" lay-filter="test">
     <div class="layui-colla-item">
         <h2 class="layui-colla-title">创建订单</h2>
@@ -114,7 +122,7 @@
                 </blockquote>
 
                 <blockquote class="layui-elem-quote news_search">
-                    <p>返回数据（示例）：{"code":1,"msg":"成功","data":{"payId":"1547129707139","orderId":"201901102220147500","payType":2,"price":0.1,"reallyPrice":0.1,"payUrl":"HTTPS://QR.ALIPAY.COM/FKX03500Z2ZYWA0ELYUB5D","isAuto":1,"state":0,"timeOut":5,"date":1547130014}}</p>
+                    <p>返回数据（示例）：{"code":1,"msg":"成功","data":{"payId":"1547129707139","orderId":"201901102220147500","payType":2,"price":0.1,"reallyPrice":0.1,"payUrl":"https://qr.example/alipay-demo","isAuto":1,"state":0,"timeOut":5,"date":1547130014}}</p>
                     <div class="layui-inline">
                         返回数据说明:
                     </div>
@@ -273,7 +281,7 @@
                 </blockquote>
 
                 <blockquote class="layui-elem-quote news_search">
-                    <p>返回数据（示例）：{"code":1,"msg":"成功","data":{"payId":"1547129707139","orderId":"201901102220147500","payType":2,"price":0.1,"reallyPrice":0.1,"payUrl":"HTTPS://QR.ALIPAY.COM/FKX03500Z2ZYWA0ELYUB5D","isAuto":1,"state":0,"timeOut":5,"date":1547130014}}</p>
+                    <p>返回数据（示例）：{"code":1,"msg":"成功","data":{"payId":"1547129707139","orderId":"201901102220147500","payType":2,"price":0.1,"reallyPrice":0.1,"payUrl":"https://qr.example/alipay-demo","isAuto":1,"state":0,"timeOut":5,"date":1547130014}}</p>
                     <div class="layui-inline">
                         返回数据说明:
                     </div>
@@ -404,6 +412,7 @@
                 <blockquote class="layui-elem-quote news_search">
 
                     <p>参数示例（示例）：orderId=201901102225513177</p>
+                    <p>只有 state=1 或 state=2 的已支付订单会生成带签名的返回地址；其他状态返回错误。</p>
 
 
                     <div class="layui-inline">
@@ -623,12 +632,12 @@
                         <tr>
                             <td>t</td>
                             <td>长整数</td>
-                            <td>【必传】现行时间戳</td>
+                            <td>【必传】当前时间戳，支持 10 位秒或 13 位毫秒，允许与服务器时间相差最多 300 秒</td>
                         </tr>
                         <tr>
                             <td>sign</td>
                             <td>字符串</td>
-                            <td>【必传】md5(现行时间戳+通讯密钥)</td>
+                            <td>【必传】md5(原始时间戳字符串+通讯密钥)；同一监控事件重复提交会被拒绝</td>
                         </tr>
                         </tbody>
                     </table>

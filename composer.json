@@ -1,0 +1,38 @@
+{
+    "name": "leochen-coremind/vmqfox-backend",
+    "description": "VMQFox payment notification backend based on ThinkPHP 8",
+    "type": "project",
+    "keywords": [
+        "thinkphp",
+        "payment-notification",
+        "qrcode"
+    ],
+    "homepage": "https://github.com/LeoChen-CoreMind/vmqfox-backend",
+    "license": "MIT",
+    "authors": [
+        {
+            "name": "LeoChen-CoreMind",
+            "homepage": "https://github.com/LeoChen-CoreMind"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/LeoChen-CoreMind/vmqfox-backend/issues",
+        "source": "https://github.com/LeoChen-CoreMind/vmqfox-backend"
+    },
+    "require": {
+        "php": ">=8.2.0",
+        "ext-bcmath": "*",
+        "ext-curl": "*",
+        "topthink/framework": "^8.0",
+        "endroid/qr-code": "^6.0",
+        "khanamiryan/qrcode-detector-decoder": "^2.0.3"
+    },
+    "autoload": {
+        "psr-4": {
+            "app\\": "app"
+        }
+    },
+    "config": {
+        "preferred-install": "dist"
+    }
+}

@@ -670,16 +670,33 @@ class Index
             return json($this->getReturn(-1, '时间戳和签名不能为空'));
         }
 
+        if (!MonitorEventGuard::isFresh($timestamp)) {
+            return json($this->getReturn(-1, '监控事件已过期'));
+        }
+
         $key = (string) Db::name('setting')->where('vkey', 'key')->value('vvalue');
         if (!hash_equals(md5($timestamp . $key), $sign)) {
             return json($this->getReturn(-1, '签名校验不通过'));
         }
 
-        return json($this->getReturn(1, '成功', [
-            'lastheart' => (string) Db::name('setting')->where('vkey', 'lastheart')->value('vvalue'),
-            'lastpay' => (string) Db::name('setting')->where('vkey', 'lastpay')->value('vvalue'),
-            'jkstate' => (string) Db::name('setting')->where('vkey', 'jkstate')->value('vvalue'),
-        ]));
+        if (!MonitorEventGuard::claim('state', '', '', $timestamp, $sign)) {
+            return json($this->getReturn(-1, '监控事件重复'));
+        }
+
+        try {
+            $monitorState = (string) Db::name('setting')->where('vkey', 'jkstate')->value('vvalue');
+            $state = [
+                'lastheart' => (string) Db::name('setting')->where('vkey', 'lastheart')->value('vvalue'),
+                'lastpay' => (string) Db::name('setting')->where('vkey', 'lastpay')->value('vvalue'),
+                'state' => $monitorState,
+                'jkstate' => $monitorState,
+            ];
+        } catch (\Throwable $e) {
+            MonitorEventGuard::release('state', '', '', $timestamp, $sign);
+            throw $e;
+        }
+
+        return json($this->getReturn(1, '成功', $state));
     }
 
     /**
@@ -733,6 +750,10 @@ class Index
 
         if ($res['state'] == -1) {
             return json($this->getReturn(-1, "订单已过期"));
+        }
+
+        if (!in_array((int) $res['state'], [1, 2], true)) {
+            return json($this->getReturn(-1, "订单状态不允许生成返回地址"));
         }
 
         // 获取系统密钥

@@ -39,6 +39,14 @@ test('monitor handlers use atomic replay claims and conditional order updates', 
         assertSameValue(true, str_contains($controller, 'hash_equals('));
         assertSameValue(true, str_contains($controller, '->where("state", 0)'));
     }
+
+    $getStateStart = strpos($legacyMonitor, 'public function getState');
+    $getStateEnd = strpos($legacyMonitor, 'public function getOrder', $getStateStart);
+    $getState = substr($legacyMonitor, $getStateStart, $getStateEnd - $getStateStart);
+    assertSameValue(true, str_contains($getState, 'MonitorEventGuard::isFresh($timestamp)'));
+    assertSameValue(true, str_contains($getState, "MonitorEventGuard::claim('state'"));
+    assertSameValue(true, str_contains($getState, "'state' => \$monitorState"));
+    assertSameValue(true, str_contains($getState, "'jkstate' => \$monitorState"));
 });
 
 if (realpath((string) ($_SERVER['SCRIPT_FILENAME'] ?? '')) === __FILE__) {

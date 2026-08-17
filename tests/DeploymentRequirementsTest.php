@@ -34,10 +34,12 @@ test('public release removes bundled clients and unsafe payment demos', function
     $loginPage = file_get_contents($root . '/public/index.html');
     $apiPage = file_get_contents($root . '/public/api.html');
     $readme = file_get_contents($root . '/README.md');
+    $sql = file_get_contents($root . '/vmq.sql');
 
     assertSameValue(false, is_file($root . '/public/v.apk'));
     assertSameValue(false, is_file($root . '/public/example/index.html'));
     assertSameValue(false, is_file($root . '/public/example/main.php'));
+    assertSameValue(false, is_file($root . '/app/controller/index/index.5.1.php'));
     assertSameValue(true, is_file($root . '/public/example/return.php'));
     assertSameValue(true, is_file($root . '/public/example/notify.php'));
 
@@ -49,7 +51,51 @@ test('public release removes bundled clients and unsafe payment demos', function
     assertSameValue(false, str_contains($adminShell, 'admin/index/checkUpdate'));
     assertSameValue(false, str_contains($loginPage, "title:'运行环境检测'"));
     assertSameValue(false, str_contains($apiPage, '测试支付页面'));
+    assertSameValue(false, str_contains(strtolower($apiPage), 'qr.alipay.com'));
+    assertSameValue(false, str_contains($loginPage, '请勿二次出售'));
+    assertSameValue(false, str_contains($loginPage, '请勿用于商业用途'));
+    assertSameValue(true, str_contains($loginPage, 'https://github.com/LeoChen-CoreMind/vmqfox-backend'));
+    assertSameValue(true, str_contains($sql, "('user', '')"));
+    assertSameValue(true, str_contains($sql, "('pass', '')"));
+    assertSameValue(true, str_contains($sql, "('key', '')"));
+    assertSameValue(false, str_contains($sql, "('user', 'admin')"));
+    assertSameValue(false, str_contains($sql, "('pass', 'admin')"));
     assertSameValue(true, str_contains($readme, 'KSU 模块与监控 APK 不能同时使用'));
+});
+
+test('release artifacts contain no floating image tags or production-shaped secrets', function (): void {
+    $root = dirname(__DIR__);
+    $compose = file_get_contents($root . '/docker-compose.yml');
+    $dockerfile = file_get_contents($root . '/Dockerfile');
+    $dockerEnv = file_get_contents($root . '/.env.docker.example');
+    $linuxEnv = file_get_contents($root . '/env.example');
+
+    assertSameValue(false, str_contains($compose, ':latest'));
+    assertSameValue(false, str_contains($dockerfile, ':latest'));
+    assertSameValue(true, str_contains($dockerEnv, 'replace-with-a-long-random-password'));
+    assertSameValue(true, str_contains($dockerEnv, 'replace-with-a-random-password'));
+    assertSameValue(true, str_contains($linuxEnv, 'replace-with-a-long-random-password'));
+    assertSameValue(true, str_contains($linuxEnv, 'replace-with-a-random-password'));
+
+    $textExtensions = ['css', 'env', 'html', 'ini', 'js', 'json', 'md', 'php', 'py', 'sh', 'sql', 'txt', 'xml', 'yml'];
+    $iterator = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($root, FilesystemIterator::SKIP_DOTS)
+    );
+    foreach ($iterator as $file) {
+        $path = str_replace('\\', '/', $file->getPathname());
+        if (preg_match('#/(?:\.git|node_modules|runtime|tests|vendor)/#', $path)) {
+            continue;
+        }
+        if (!in_array(strtolower($file->getExtension()), $textExtensions, true)) {
+            continue;
+        }
+
+        $contents = file_get_contents($file->getPathname());
+        assertSameValue(false, preg_match('#qr\.alipay\.com/[A-Z0-9]{10,}#i', $contents) === 1);
+        assertSameValue(false, str_contains($contents, '-----BEGIN PRIVATE KEY-----'));
+        assertSameValue(false, str_contains($contents, '-----BEGIN RSA PRIVATE KEY-----'));
+        assertSameValue(false, str_contains($contents, '-----BEGIN OPENSSH PRIVATE KEY-----'));
+    }
 });
 
 test('deployment pins images and enforces TLS CORS and utf8mb4 defaults', function (): void {

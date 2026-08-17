@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>QR upload mount smoke test</title>
+    <link rel="stylesheet" href="../../public/layui/css/layui.css">
+    <link rel="stylesheet" href="../../public/css/qrcode-admin.css">
+    <style>
+        body { margin: 24px; }
+        @media (max-width: 600px) { body { width: 342px; } }
+    </style>
+</head>
+<body data-smoke="pending">
+    <section id="wechat"></section>
+    <section id="dependencies" hidden></section>
+    <script src="../../public/js/qrcode-admin.js"></script>
+    <script>
+        QrAdmin.mountUpload({root: '#wechat', type: 1});
+        document.querySelector('#wechat [data-role="items"]').innerHTML = QrAdmin.uploadItemsHtml([
+            {
+                file: {name: '微信收款码_自动识别成功.jpg'},
+                preview: '../../vendor/khanamiryan/qrcode-detector-decoder/tests/qrcodes/test.png',
+                url: 'wxp://recognized/example',
+                amount: '1.00',
+                amountStatus: 'detected',
+                status: 'ready',
+                decoder: 'opencv'
+            },
+            {
+                file: {name: '带头像和复杂背景的二维码图片.jpg'},
+                preview: '../../vendor/khanamiryan/qrcode-detector-decoder/tests/qrcodes/hello_world.png',
+                url: '',
+                amount: '',
+                amountStatus: 'manual',
+                status: 'error',
+                error: '自动识别失败，可手工粘贴收款链接后继续保存'
+            }
+        ]);
+        document.querySelector('#wechat [data-role="summary"]').textContent = '2 个文件';
+        document.querySelector('#dependencies').innerHTML = QrAdmin.dependencyHelpHtml({
+            proc_open: false,
+            temp_dir_writable: true,
+            simplexml: true
+        });
+
+        var roots = document.querySelectorAll('.qr-page-toolbar');
+        var selectors = document.querySelectorAll('[data-action="select"]');
+        var saves = document.querySelectorAll('[data-action="save"]');
+        var cards = document.querySelectorAll('.qr-card-grid .qr-upload-card');
+        var urlFields = document.querySelectorAll('.qr-upload-card [data-field="url"]');
+        var warning = document.querySelectorAll('.qr-dependency-warning');
+        var blockedTools = document.querySelectorAll('.qr-dependency-grid .is-missing');
+        document.body.setAttribute(
+            'data-smoke',
+            roots.length === 1 && selectors.length === 1 && saves.length === 1 &&
+                cards.length === 2 && urlFields.length === 2 &&
+                warning.length === 1 && blockedTools.length >= 3 ? 'pass' : 'fail'
+        );
+        document.body.setAttribute('data-viewport-width', document.documentElement.clientWidth);
+    </script>
+</body>
+</html>
