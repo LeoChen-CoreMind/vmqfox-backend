@@ -2,8 +2,30 @@
 
 $root = dirname(__DIR__);
 $routeSource = file_get_contents($root . '/route/app.php');
+$legacyRouteSource = file_get_contents($root . '/route/route.php');
 $routeConfigPath = $root . '/config/route.php';
 $adminControllerSource = file_get_contents($root . '/app/controller/admin/Index.php');
+
+function dispatchRouteSecurityRequest(string $root, string $path, string $method = 'GET'): \think\Response
+{
+    $app = new \think\App($root . DIRECTORY_SEPARATOR);
+    $app->initialize();
+    $app->event->remove(\think\event\HttpRun::class);
+
+    $request = (new \think\Request())->withServer([
+        'REQUEST_METHOD' => $method,
+        'REQUEST_URI' => '/' . $path,
+        'PATH_INFO' => '/' . $path,
+        'HTTP_HOST' => 'localhost',
+        'SERVER_NAME' => 'localhost',
+        'SERVER_PORT' => '80',
+        'SCRIPT_NAME' => '/index.php',
+        'SCRIPT_FILENAME' => $root . '/public/index.php',
+        'REMOTE_ADDR' => '127.0.0.1',
+    ]);
+
+    return $app->http->run($request);
+}
 
 test('automatic controller routing is disabled', function () use ($routeConfigPath): void {
     assertSameValue(true, is_file($routeConfigPath));
@@ -15,6 +37,26 @@ test('automatic controller routing is disabled', function () use ($routeConfigPa
 test('admin actions are explicitly routed and curl helper is private', function () use ($routeSource, $adminControllerSource): void {
     assertSameValue(false, str_contains($routeSource, "admin/index/:action"));
     assertSameValue(true, str_contains($adminControllerSource, 'private function getCurl'));
+});
+
+test('undeclared admin actions return an actual 404 response', function () use ($root): void {
+    $response = dispatchRouteSecurityRequest($root, 'admin/index/notDeclared');
+
+    assertSameValue(404, $response->getCode());
+});
+
+test('protected REST routes reject unauthenticated requests at runtime', function () use ($root): void {
+    foreach ([
+        ['api/user/info', 'GET'],
+        ['api/order/list', 'GET'],
+        ['api/config/get', 'GET'],
+        ['api/qrcode/list', 'GET'],
+    ] as [$path, $method]) {
+        $response = dispatchRouteSecurityRequest($root, $path, $method);
+        $payload = json_decode($response->getContent(), true);
+
+        assertSameValue(401, $payload['code'] ?? null);
+    }
 });
 
 test('administrative REST routes are protected by Auth middleware', function () use ($routeSource): void {
@@ -70,5 +112,26 @@ test('signed payment and monitor REST routes remain public', function () use ($r
         'monitor/push',
     ] as $route) {
         assertSameValue(true, str_contains($blocks['public'], $route));
+    }
+});
+
+test('legacy compatibility endpoints are present in the loaded route table', function () use ($root): void {
+    $app = new \think\App($root . DIRECTORY_SEPARATOR);
+    $app->initialize();
+    $app->event->remove(\think\event\HttpRun::class);
+    include $root . '/route/app.php';
+    include $root . '/route/route.php';
+
+    $rules = $app->route->getRuleList();
+    foreach (['createOrder', 'getOrder', 'checkOrder', 'closeOrder', 'getState', 'appHeart', 'appPush'] as $route) {
+        $registered = false;
+        foreach ($rules as $rule) {
+            if (str_ends_with((string) ($rule['rule'] ?? ''), '/' . $route)
+                || ($rule['rule'] ?? '') === $route) {
+                $registered = true;
+                break;
+            }
+        }
+        assertSameValue(true, $registered);
     }
 });
