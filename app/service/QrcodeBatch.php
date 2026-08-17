@@ -14,24 +14,24 @@ final class QrcodeBatch
     public static function normalizeItems(mixed $items): array
     {
         if (!is_array($items) || $items === [] || count($items) > self::MAX_ITEMS) {
-            throw new InvalidArgumentException('姣忔壒蹇呴』鍖呭惈 1 鍒?20 涓簩缁寸爜');
+            throw new InvalidArgumentException('每批必须包含 1 到 20 个二维码');
         }
 
         $normalized = [];
         $seen = [];
         foreach ($items as $item) {
             if (!is_array($item)) {
-                throw new InvalidArgumentException('浜岀淮鐮佸唴瀹规垨閲戦鏃犳晥');
+                throw new InvalidArgumentException('二维码内容或金额无效');
             }
 
             $clientId = trim((string) ($item['client_id'] ?? ''));
             $payUrl = trim((string) ($item['pay_url'] ?? ''));
             $price = QrcodeInput::normalizePrice($item['price'] ?? null);
             if (!preg_match('/^[A-Za-z0-9._:-]{1,64}$/', $clientId) || isset($seen[$clientId])) {
-                throw new InvalidArgumentException('浜岀淮鐮佸鎴风缂栧彿鏃犳晥鎴栭噸澶?');
+                throw new InvalidArgumentException('二维码客户端编号无效或重复');
             }
             if ($payUrl === '' || strlen($payUrl) > 255 || $price === null) {
-                throw new InvalidArgumentException('浜岀淮鐮佸唴瀹规垨閲戦鏃犳晥');
+                throw new InvalidArgumentException('二维码内容或金额无效');
             }
 
             $seen[$clientId] = true;
@@ -49,7 +49,7 @@ final class QrcodeBatch
     public static function preview(int $type, array $items, array $existingRows): array
     {
         if (QrcodeInput::normalizeType($type) === null) {
-            throw new InvalidArgumentException('Invalid payment type');
+            throw new InvalidArgumentException('支付类型错误');
         }
         $items = self::normalizeItems($items);
 
@@ -129,18 +129,18 @@ final class QrcodeBatch
     public static function normalizeDecisions(mixed $decisions, array $items): array
     {
         if (!is_array($decisions)) {
-            throw new InvalidArgumentException('姣忎釜浜岀淮鐮佸繀椤绘彁浜や竴涓喅绛?');
+            throw new InvalidArgumentException('每个二维码都必须提交处理决定');
         }
 
         if (array_is_list($decisions)) {
             $byClientId = [];
             foreach ($decisions as $decision) {
                 if (!is_array($decision)) {
-                    throw new InvalidArgumentException('Invalid QR batch decision');
+                    throw new InvalidArgumentException('二维码处理决定无效');
                 }
                 $clientId = trim((string) ($decision['client_id'] ?? ''));
                 if ($clientId === '' || isset($byClientId[$clientId])) {
-                    throw new InvalidArgumentException('Invalid or duplicate decision client ID');
+                    throw new InvalidArgumentException('处理决定的客户端编号无效或重复');
                 }
                 unset($decision['client_id']);
                 $byClientId[$clientId] = $decision;
@@ -149,30 +149,30 @@ final class QrcodeBatch
         }
 
         if (count($decisions) !== count($items)) {
-            throw new InvalidArgumentException('QR batch decisions are incomplete');
+            throw new InvalidArgumentException('二维码处理决定不完整');
         }
 
         $normalized = [];
         foreach ($items as $item) {
             $clientId = $item['client_id'];
             if (!array_key_exists($clientId, $decisions) || !is_array($decisions[$clientId])) {
-                throw new InvalidArgumentException('浜岀淮鐮佸喅绛栨棤鏁?');
+                throw new InvalidArgumentException('二维码处理决定无效');
             }
 
             $decision = $decisions[$clientId];
             $action = $decision['action'] ?? null;
             if (!is_string($action) || !in_array($action, ['insert', 'replace', 'skip'], true)) {
-                throw new InvalidArgumentException('浜岀淮鐮佸喅绛栨棤鏁?');
+                throw new InvalidArgumentException('二维码处理决定无效');
             }
 
             $targetId = null;
             if ($action === 'replace') {
                 $targetId = QrcodeInput::normalizeId($decision['target_id'] ?? null);
                 if ($targetId === null) {
-                    throw new InvalidArgumentException('鏇挎崲蹇呴』鎸囧畾鏈夋晥浜岀淮鐮佺紪鍙?');
+                    throw new InvalidArgumentException('替换操作必须指定有效的二维码编号');
                 }
             } elseif (array_key_exists('target_id', $decision) && $decision['target_id'] !== null) {
-                throw new InvalidArgumentException('闈炴浛鎹㈠喅绛栦笉鑳芥寚瀹氱洰鏍囦簩缁寸爜');
+                throw new InvalidArgumentException('非替换操作不能指定目标二维码');
             }
 
             $normalized[$clientId] = ['action' => $action, 'target_id' => $targetId];
@@ -180,7 +180,7 @@ final class QrcodeBatch
 
         foreach (array_keys($decisions) as $clientId) {
             if (!isset($normalized[$clientId])) {
-                throw new InvalidArgumentException('浜岀淮鐮佸喅绛栨棤鏁?');
+                throw new InvalidArgumentException('二维码处理决定无效');
             }
         }
 
@@ -195,19 +195,19 @@ final class QrcodeBatch
     public static function commitPlan(array $preview, array $decisions): array
     {
         if (!isset($preview['items']) || !is_array($preview['items'])) {
-            throw new InvalidArgumentException('浜岀淮鐮侀瑙堟棤鏁?');
+            throw new InvalidArgumentException('二维码预览数据无效');
         }
 
         $plan = [];
         $insertsByPrice = [];
         foreach ($preview['items'] as $item) {
             if (!is_array($item) || !isset($item['client_id'], $item['pay_url'], $item['price'])) {
-                throw new InvalidArgumentException('浜岀淮鐮侀瑙堟棤鏁?');
+                throw new InvalidArgumentException('二维码预览数据无效');
             }
 
             $clientId = $item['client_id'];
             if (!isset($decisions[$clientId]) || !is_array($decisions[$clientId])) {
-                throw new InvalidArgumentException('浜岀淮鐮佸喅绛栨棤鏁?');
+                throw new InvalidArgumentException('二维码处理决定无效');
             }
 
             $decision = $decisions[$clientId];
@@ -216,24 +216,24 @@ final class QrcodeBatch
             $targetId = $decision['target_id'] ?? null;
 
             if (!in_array($action, ['insert', 'replace', 'skip'], true)) {
-                throw new InvalidArgumentException('浜岀淮鐮佸喅绛栨棤鏁?');
+                throw new InvalidArgumentException('二维码处理决定无效');
             }
             if ($action === 'insert') {
                 if ($existingId !== null) {
-                    throw new InvalidArgumentException('瀛樺湪鍚岄噾棰濅簩缁寸爜鏃朵笉鑳芥柊澧?');
+                    throw new InvalidArgumentException('该金额已存在二维码，不能新增');
                 }
                 $insertsByPrice[$item['price']] = ($insertsByPrice[$item['price']] ?? 0) + 1;
                 if ($insertsByPrice[$item['price']] > 1) {
-                    throw new InvalidArgumentException('姣忎釜閲戦鍙兘鏂板涓€涓簩缁寸爜');
+                    throw new InvalidArgumentException('同一金额只能新增一个二维码');
                 }
                 $targetId = null;
             } elseif ($action === 'replace') {
                 if ($existingId === null || !is_int($targetId) || (string) $targetId !== $existingId) {
-                    throw new InvalidArgumentException('鏇挎崲鐩爣涓庨瑙堝啿绐佷笉鍖归厤');
+                    throw new InvalidArgumentException('替换目标与预览冲突不匹配');
                 }
             } else {
                 if ($targetId !== null) {
-                    throw new InvalidArgumentException('璺宠繃鍐崇瓥涓嶈兘鎸囧畾鐩爣浜岀淮鐮?');
+                    throw new InvalidArgumentException('跳过操作不能指定目标二维码');
                 }
             }
 
@@ -247,7 +247,7 @@ final class QrcodeBatch
         }
 
         if (count($decisions) !== count($plan)) {
-            throw new InvalidArgumentException('浜岀淮鐮佸喅绛栨棤鏁?');
+            throw new InvalidArgumentException('二维码处理决定不完整');
         }
 
         return $plan;
