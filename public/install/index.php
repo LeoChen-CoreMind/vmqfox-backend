@@ -7,8 +7,11 @@ $root = dirname(__DIR__, 2);
 require_once $root . '/app/service/Installer.php';
 
 $runtime = $root . '/runtime';
-if (!is_dir($runtime)) {
-    @mkdir($runtime, 0775, true);
+$runtimeError = '';
+if (!is_dir($runtime) && !@mkdir($runtime, 0775, true) && !is_dir($runtime)) {
+    $runtimeError = 'runtime 目录不存在且 PHP-FPM 无法创建它。请在服务器终端创建目录并授予网站用户写权限。';
+} elseif (!is_writable($runtime)) {
+    $runtimeError = 'runtime 目录不可写。请在服务器终端将它的所有者和权限设置为 PHP-FPM 网站用户。';
 }
 $noncePath = $runtime . '/installer-nonce';
 $status = Installer::status($root);
@@ -32,6 +35,9 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     $originHost = $origin !== '' ? (string)(parse_url($origin, PHP_URL_HOST) ?? '') : '';
     $requestHost = $host !== '' ? (string)(parse_url('http://' . $host, PHP_URL_HOST) ?? '') : '';
     try {
+        if ($runtimeError !== '') {
+            throw new RuntimeException($runtimeError);
+        }
         if (!hash_equals($storedNonce, $postedNonce) || $storedNonce === '' || $nonceAge > 900) {
             throw new RuntimeException('Installer session expired. Refresh the page and try again.');
         }
@@ -64,8 +70,18 @@ if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     }
 }
 
-$nonce = bin2hex(random_bytes(24));
-file_put_contents($noncePath, $nonce, LOCK_EX);
+$nonce = '';
+if ($runtimeError === '') {
+    $candidateNonce = bin2hex(random_bytes(24));
+    if (@file_put_contents($noncePath, $candidateNonce, LOCK_EX) === false) {
+        $runtimeError = '无法写入 runtime/installer-nonce。请检查 PHP-FPM 网站用户对 runtime 目录的写权限。';
+    } else {
+        $nonce = $candidateNonce;
+    }
+}
+if ($runtimeError !== '' && $error === '') {
+    $error = $runtimeError . ' 常用宝塔命令：mkdir -p runtime && chown -R www:www runtime && chmod -R 775 runtime';
+}
 @chmod($noncePath, 0600);
 
 $escape = static fn(string $value): string => htmlspecialchars($value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
@@ -122,7 +138,7 @@ $databaseImported = (bool)($status['database_imported'] ?? false);
         <input type="hidden" name="schema_action" value="import">
         <?php endif; ?>
         <label style="display:block;margin-top:18px"><input type="checkbox" name="confirm" value="1" required style="width:auto;margin-right:8px">我确认数据库可用于此站点，并同意<?= $databaseImported ? '跳过已存在的数据库导入并' : '导入 `vmq.sql` 和' ?>创建管理员。</label>
-        <button type="submit">开始安装</button>
+        <button type="submit" <?= $nonce === '' ? 'disabled' : '' ?>>开始安装</button>
     </form>
     <?php else: ?><p>系统已安装。请访问 <a href="/">首页</a> 登录。</p><?php endif; ?>
     <h2>主机依赖安装</h2>

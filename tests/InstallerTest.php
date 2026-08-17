@@ -83,6 +83,13 @@ test('installer does not allow database values to diverge from an existing env f
     assertSameValue(true, str_contains($source, 'existing .env already defines'));
 });
 
+test('installer handles a missing or unwritable runtime directory without warnings', function (): void {
+    $source = file_get_contents(dirname(__DIR__) . '/public/install/index.php');
+    assertSameValue(true, str_contains($source, 'runtimeError'));
+    assertSameValue(true, str_contains($source, 'is_writable($runtime)'));
+    assertSameValue(true, str_contains($source, 'chown -R www:www runtime'));
+});
+
 if (realpath((string)($_SERVER['SCRIPT_FILENAME'] ?? '')) === __FILE__) {
     exit($failures === 0 ? 0 : 1);
 }

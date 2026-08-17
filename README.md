@@ -2,7 +2,7 @@
 
 VMQFox 的 PHP / ThinkPHP 8 后端，提供订单、微信/支付宝收款二维码、监控端通知、管理后台兼容接口和 REST 风格 API。
 
-当前版本为 **2.3.0**。本文档按当前代码整理，最后核对日期为 **2026-08-17**。
+当前版本为 **2.3.1**。本文档按当前代码整理，最后核对日期为 **2026-08-17**。
 
 [![PHP](https://img.shields.io/badge/PHP-8.2%20recommended-777BB4?logo=php&logoColor=white)](https://www.php.net/)
 [![ThinkPHP](https://img.shields.io/badge/ThinkPHP-8-brightgreen)](https://www.thinkphp.cn/)
