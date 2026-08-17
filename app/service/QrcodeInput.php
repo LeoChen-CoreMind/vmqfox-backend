@@ -4,6 +4,15 @@ namespace app\service;
 
 class QrcodeInput
 {
+    private const SORT_ORDERS = [
+        'newest' => ['id' => 'desc'],
+        'oldest' => ['id' => 'asc'],
+        'amount_asc' => ['price' => 'asc', 'id' => 'asc'],
+        'amount_desc' => ['price' => 'desc', 'id' => 'desc'],
+        'enabled_first' => ['state' => 'asc', 'id' => 'desc'],
+        'disabled_first' => ['state' => 'desc', 'id' => 'desc'],
+    ];
+
     /**
      * @return array{page:int,limit:int}
      */
@@ -48,5 +57,25 @@ class QrcodeInput
     {
         $state = trim((string) $state);
         return in_array($state, ['0', '1'], true) ? (int) $state : null;
+    }
+
+    public static function normalizeType(mixed $type): ?int
+    {
+        $type = filter_var($type, FILTER_VALIDATE_INT);
+        return in_array($type, [1, 2], true) ? $type : null;
+    }
+
+    public static function normalizeSort(mixed $sort): string
+    {
+        $sort = trim((string) $sort);
+        return isset(self::SORT_ORDERS[$sort]) ? $sort : 'newest';
+    }
+
+    /**
+     * @return array<string,string>
+     */
+    public static function sortOrder(string $sort): array
+    {
+        return self::SORT_ORDERS[self::normalizeSort($sort)];
     }
 }

@@ -28,3 +28,12 @@ test('normalizes QR code enabled states', function (): void {
     assertSameValue(null, QrcodeInput::normalizeState('2'));
     assertSameValue(null, QrcodeInput::normalizeState('invalid'));
 });
+
+test('normalizes QR type and fixed sort tokens', function (): void {
+    assertSameValue(1, QrcodeInput::normalizeType('1'));
+    assertSameValue(2, QrcodeInput::normalizeType(2));
+    assertSameValue(null, QrcodeInput::normalizeType('3'));
+    assertSameValue('newest', QrcodeInput::normalizeSort('price desc, sleep(5)'));
+    assertSameValue('amount_asc', QrcodeInput::normalizeSort('amount_asc'));
+    assertSameValue(['state' => 'desc', 'id' => 'desc'], QrcodeInput::sortOrder('disabled_first'));
+});
