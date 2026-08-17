@@ -5,7 +5,9 @@ use think\facade\Db;
 use think\facade\Session;
 use think\facade\Request;
 use think\facade\Config;
+use think\facade\Cookie;
 use app\service\MonitorEventGuard;
+use app\service\AdminCredentials;
 
 class Index
 {
@@ -108,21 +110,14 @@ class Index
         $user = Request::param('user');
         $pass = Request::param('pass');
 
-        $_user = Db::name("setting")->where("vkey", "user")->find();
-        $_pass = Db::name("setting")->where("vkey", "pass")->find();
-
-        if ($user != $_user["vvalue"]) {
-            return json($this->getReturn(-1, "账号或密码错误"));
-        }
-        if ($pass != $_pass["vvalue"]) {
+        if (!(new AdminCredentials())->verify((string) $user, (string) $pass)) {
             return json($this->getReturn(-1, "账号或密码错误"));
         }
 
+        Session::regenerate(true);
         Session::set("admin", 1);
         Session::save();
-
-        // 设置Cookie，确保路径正确，并设置较长的过期时间
-        setcookie('PHPSESSID', Session::getId(), time() + 86400, '/', '', false, false);
+        Cookie::set('PHPSESSID', Session::getId(), 86400);
 
         return json($this->getReturn(1, "成功"));
     }

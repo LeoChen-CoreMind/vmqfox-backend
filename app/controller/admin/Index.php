@@ -7,6 +7,7 @@ use think\facade\Request;
 use think\facade\Config;
 use app\service\QrcodeServer;
 use app\service\SystemUptime;
+use app\service\AdminCredentials;
 use Zxing\QrReader;
 
 class Index
@@ -140,54 +141,34 @@ class Index
         if (!$this->checkAdminSession()){
             return json($this->getReturn(-1,"没有登录"));
         }
-        $user = Db::name("setting")->where("vkey","user")->find();
-        $pass = Db::name("setting")->where("vkey","pass")->find();
-        $notifyUrl = Db::name("setting")->where("vkey","notifyUrl")->find();
-        $returnUrl = Db::name("setting")->where("vkey","returnUrl")->find();
-        $key = Db::name("setting")->where("vkey","key")->find();
-        $lastheart = Db::name("setting")->where("vkey","lastheart")->find();
-        $lastpay = Db::name("setting")->where("vkey","lastpay")->find();
-        $jkstate = Db::name("setting")->where("vkey","jkstate")->find();
-        $close = Db::name("setting")->where("vkey","close")->find();
-        $payQf = Db::name("setting")->where("vkey","payQf")->find();
-        $wxpay = Db::name("setting")->where("vkey","wxpay")->find();
-        $zfbpay = Db::name("setting")->where("vkey","zfbpay")->find();
-        if ($key['vvalue']==""){
-            $key['vvalue'] = md5(time());
+        $settings = (new AdminCredentials())->publicSettings();
+        if (($settings['key'] ?? '') === ''){
+            $settings['key'] = bin2hex(random_bytes(16));
             Db::name("setting")->where("vkey","key")->update(array(
-                "vvalue"=>$key['vvalue']
+                "vvalue"=>$settings['key']
             ));
         }
 
-        return json($this->getReturn(1,"成功",array(
-            "user"=>$user['vvalue'],
-            "pass"=>$pass['vvalue'],
-            "notifyUrl"=>$notifyUrl['vvalue'],
-            "returnUrl"=>$returnUrl['vvalue'],
-            "key"=>$key['vvalue'],
-            "lastheart"=>$lastheart['vvalue'],
-            "lastpay"=>$lastpay['vvalue'],
-            "jkstate"=>$jkstate['vvalue'],
-            "close"=>$close['vvalue'],
-            "payQf"=>$payQf['vvalue'],
-            "wxpay"=>$wxpay['vvalue'],
-            "zfbpay"=>$zfbpay['vvalue'],
-        )));
+        return json($this->getReturn(1,"成功",$settings));
     }
 
     public function saveSetting(){
         if (!$this->checkAdminSession()){
             return json($this->getReturn(-1,"没有登录"));
         }
-        Db::name("setting")->where("vkey","user")->update(array("vvalue"=>Request::param("user")));
-        Db::name("setting")->where("vkey","pass")->update(array("vvalue"=>Request::param("pass")));
-        Db::name("setting")->where("vkey","notifyUrl")->update(array("vvalue"=>Request::param("notifyUrl")));
-        Db::name("setting")->where("vkey","returnUrl")->update(array("vvalue"=>Request::param("returnUrl")));
-        Db::name("setting")->where("vkey","key")->update(array("vvalue"=>Request::param("key")));
-        Db::name("setting")->where("vkey","close")->update(array("vvalue"=>Request::param("close")));
-        Db::name("setting")->where("vkey","payQf")->update(array("vvalue"=>Request::param("payQf")));
-        Db::name("setting")->where("vkey","wxpay")->update(array("vvalue"=>Request::param("wxpay")));
-        Db::name("setting")->where("vkey","zfbpay")->update(array("vvalue"=>Request::param("zfbpay")));
+        $credentials = new AdminCredentials();
+        $current = $credentials->publicSettings();
+        $credentials->update(
+            (string) Request::param('user', $current['user'] ?? ''),
+            (string) Request::param('pass', '')
+        );
+
+        foreach (['notifyUrl', 'returnUrl', 'key', 'close', 'payQf', 'wxpay', 'zfbpay'] as $key) {
+            $value = Request::param($key);
+            if ($value !== null) {
+                Db::name("setting")->where("vkey", $key)->update(["vvalue" => $value]);
+            }
+        }
 
         return json($this->getReturn());
     }
