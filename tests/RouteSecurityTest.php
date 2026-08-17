@@ -2,7 +2,6 @@
 
 $root = dirname(__DIR__);
 $routeSource = file_get_contents($root . '/route/app.php');
-$legacyRouteSource = file_get_contents($root . '/route/route.php');
 $routeConfigPath = $root . '/config/route.php';
 $adminControllerSource = file_get_contents($root . '/app/controller/admin/Index.php');
 
