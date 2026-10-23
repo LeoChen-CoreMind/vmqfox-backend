@@ -100,7 +100,8 @@ final class AdminCredentials
         $settings = [];
         foreach ($this->readAll() as $item) {
             $key = (string) ($item['vkey'] ?? '');
-            if ($key === '' || $key === 'pass' || str_starts_with($key, 'monitor_event:')) {
+            if ($key === '' || $key === 'pass' || str_starts_with($key, 'monitor_event:')
+                || str_starts_with($key, 'qr_limit:') || str_starts_with($key, 'schema_')) {
                 continue;
             }
             $settings[$key] = (string) ($item['vvalue'] ?? '');

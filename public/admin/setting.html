@@ -45,9 +45,8 @@
         <label class="layui-form-label">区分方式</label>
         <div class="layui-input-block">
             <div class="layui-upload">
-                <select id="payQf">
-                    <option value="1">金额递增</option>
-                    <option value="2">金额递减</option>
+                <select id="payQf" disabled>
+                    <option value="1">金额递增（冲突时增加 0.01 元）</option>
                 </select>
             </div>
         </div>
@@ -296,7 +295,7 @@
                 $("#returnUrl").val(data.data.returnUrl);
                 $("#key").val(data.data.key);
                 $("#close").val(data.data.close);
-                $("#payQf").val(data.data.payQf);
+                $("#payQf").val('1');
 
 
                 if (data.data.wxpay!=""){

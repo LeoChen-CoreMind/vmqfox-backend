@@ -66,104 +66,20 @@ class Order extends BaseController
             return $this->error('商户订单号已存在，请勿重复提交');
         }
         
-        // 生成订单号
-        $orderId = date('YmdHis') . mt_rand(10000, 99999);
-        
-        // 使用分进行金额计算，避免精度问题
-        $reallyPriceCent = bcmul($price, 100);
-        
-        // 获取payQf配置，用于金额递增/递减
-        $payQf = Db::name('setting')->where('vkey', 'payQf')->value('vvalue');
-        
-        // 使用tmp_price表避免金额冲突
-        $ok = false;
-        for ($i = 0; $i < 10; $i++) {
-            $tmpPrice = $reallyPriceCent . "-" . $type;
-            try {
-                $row = Db::execute("INSERT IGNORE INTO tmp_price (price, oid) VALUES (?, ?)", [$tmpPrice, $orderId]);
-                if ($row) {
-                    $ok = true;
-                    break;
-                }
-            } catch (\Exception $e) {
-                // 数据库异常
-            }
-            
-            // 根据配置微调价格
-            if ($payQf == '1') { // 金额递增模式
-                $reallyPriceCent++;
-            } else if ($payQf == '2') { // 金额递减模式
-                $reallyPriceCent--;
-            }
-        }
-        
-        if (!$ok) {
-            return $this->error('订单超出负荷，请稍后重试');
-        }
-        
-        // 将分转换回元
-        $reallyPrice = bcdiv($reallyPriceCent, 100, 2);
-
         try {
-            $isAuto = 1; // 默认为自动模式 (is_auto=1)，需要用户手动输入金额
-            $payUrl = '';
-
-            // 1. 优先查找与浮动后金额完全匹配的二维码
-            $qrcode = Db::name("pay_qrcode")
-                ->where("price", $reallyPrice)
-                ->where("type", $type)
-                ->where("state", 0) // 确保二维码是启用的
-                ->find();
-
-            if ($qrcode) {
-                // 找到匹配的二维码，使用固定的URL
-                $payUrl = $qrcode['pay_url'];
-                $isAuto = 0; // 标记为非自动模式 (is_auto=0)，扫码后金额固定
-            } else {
-                // 2. 如果没有找到，降级使用全局配置的通用收款码
-                $settingKey = ($type == 1) ? 'wxpay' : 'zfbpay';
-                $payUrl = Db::name('setting')->where('vkey', $settingKey)->value('vvalue');
-            }
-
-            // 检查最终是否有可用的支付URL
-            if (empty($payUrl)) {
-                $payMethodName = ($type == 1) ? '微信' : '支付宝';
-                Db::name('tmp_price')->where('oid', $orderId)->delete();
-                return $this->error("暂无可用支付二维码，请在后台【系统设置】或【{$payMethodName}二维码】中配置");
-            }
-        
-            // 获取回调地址，如果请求中没有，则使用系统默认
-            $finalNotifyUrl = $notifyUrl ?: Db::name('setting')->where('vkey', 'notifyUrl')->value('vvalue');
-            $finalReturnUrl = $returnUrl ?: Db::name('setting')->where('vkey', 'returnUrl')->value('vvalue');
-
-            // 保存订单信息
-            $data = [
-                'pay_id' => $payId,
-                'order_id' => $orderId,
-                'create_date' => time(),
-                'type' => $type,
-                'price' => $price,
-                'really_price' => $reallyPrice,
-                'state' => 0,
-                'param' => $paramValue,
-                'pay_url' => $payUrl,
-                'is_auto' => $isAuto, // 增加 is_auto 字段
-                'notify_url' => $finalNotifyUrl,
-                'return_url' => $finalReturnUrl,
-                'pay_date' => 0,
-                'close_date' => 0 // 添加close_date字段，设为0
-            ];
-
-            $result = Db::name('pay_order')->insert($data);
+            $created = \app\service\OrderCheckout::create([
+                'pay_id' => $payId, 'param' => $paramValue, 'type' => (int) $type, 'price' => $price,
+                'notify_url' => $notifyUrl ?: Db::name('setting')->where('vkey', 'notifyUrl')->value('vvalue'),
+                'return_url' => $returnUrl ?: Db::name('setting')->where('vkey', 'returnUrl')->value('vvalue'),
+            ]);
         } catch (\Throwable $e) {
-            Db::name('tmp_price')->where('oid', $orderId)->delete();
-            throw $e;
+            return $this->error($e->getMessage());
         }
-        if (!$result) {
-            Db::name('tmp_price')->where('oid', $orderId)->delete();
-            return $this->error('创建订单失败');
-        }
-        
+        $orderId = $created['order_id'];
+        $reallyPrice = $created['really_price'];
+        $payUrl = $created['pay_url'];
+        $isAuto = $created['is_auto'];
+
         // 如果isHtml=1，直接输出HTML跳转页面
         if ($isHtml == 1) {
             // 设置Content-Type为text/html
@@ -222,6 +138,7 @@ class Order extends BaseController
             'reallyPrice' => $reallyPrice,
             'payUrl' => $payUrl,
             'isAuto' => $isAuto,
+            'qrOptions' => json_decode($created['qr_options'], true),
             'redirectUrl' => Config::get('app.frontend_url') . '/#/payment/' . $orderId
         ]);
     }
@@ -323,6 +240,7 @@ class Order extends BaseController
             'reallyPrice' => floatval($order['really_price']),
             'payUrl' => $order['pay_url'],
             'isAuto' => $order['is_auto'],
+            'qrOptions' => \app\service\QrcodeCatalog::forOrder($order),
             'state' => $order['state'],
             'stateText' => $this->getOrderStateText($order['state']),
             'timeOut' => $closeTime, // 这里传递的是分钟数，前端会乘以60转为秒
@@ -498,47 +416,8 @@ class Order extends BaseController
      */
     public function closeExpired()
     {
-        // 从设置中获取订单关闭时间（分钟）
-        $closeTimeSetting = Db::name('setting')->where('vkey', 'close')->value('vvalue');
-        $minutes = intval($closeTimeSetting) > 0 ? intval($closeTimeSetting) : 5; // 默认为5分钟
-        
-        $time = time() - ($minutes * 60);
-
-        // 查找需要关闭的订单
-        $expiredOrders = Db::name('pay_order')
-            ->where('state', 0)
-            ->where('create_date', '<', $time)
-            ->select()
-            ->toArray();
-        
-        if (empty($expiredOrders)) {
-            return $this->success(['count' => 0], '没有需要关闭的过期订单');
-        }
-
-        $closedCount = 0;
-        $orderIdsToDelete = [];
-        $orderPrimaryIdsToUpdate = [];
-
-        foreach ($expiredOrders as $order) {
-            $orderIdsToDelete[] = $order['order_id'];
-            $orderPrimaryIdsToUpdate[] = $order['id'];
-        }
-
-        // 批量更新订单状态为已关闭
-        if (!empty($orderPrimaryIdsToUpdate)) {
-            $closedCount = Db::name('pay_order')
-                ->where('id', 'in', $orderPrimaryIdsToUpdate)
-                ->update(['state' => -1, 'close_date' => time()]);
-        }
-
-        // 批量删除 tmp_price 表中的记录
-        if (!empty($orderIdsToDelete)) {
-            Db::name('tmp_price')
-                ->where('oid', 'in', $orderIdsToDelete)
-                ->delete();
-        }
-            
-        return $this->success(['count' => $closedCount], "成功关闭 {$closedCount} 条过期订单");
+        $count = \app\service\OrderCheckout::expire();
+        return $this->success(['count' => $count], "成功关闭 {$count} 条过期订单");
     }
     
     /**

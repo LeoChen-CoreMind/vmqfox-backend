@@ -43,7 +43,8 @@ CREATE TABLE `pay_order` (
   `really_price` double NOT NULL,
   `return_url` varchar(255) DEFAULT NULL,
   `state` int(11) NOT NULL,
-  `type` int(11) NOT NULL
+  `type` int(11) NOT NULL,
+  `qr_options` longtext DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -57,7 +58,13 @@ CREATE TABLE `pay_qrcode` (
   `pay_url` varchar(255) DEFAULT NULL,
   `price` double NOT NULL,
   `type` int(11) NOT NULL,
-  `state` int(11) NOT NULL DEFAULT '0' COMMENT '状态：0启用，1禁用'
+  `state` int(11) NOT NULL DEFAULT '0' COMMENT '状态：0启用，1禁用',
+  `qr_kind` varchar(16) NOT NULL DEFAULT 'normal',
+  `amount_mode` varchar(16) NOT NULL DEFAULT 'fixed',
+  `image_path` varchar(255) DEFAULT NULL,
+  `image_hash` char(64) DEFAULT NULL,
+  `name` varchar(100) NOT NULL DEFAULT '',
+  `sort_order` int(11) NOT NULL DEFAULT '0'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- --------------------------------------------------------
@@ -87,7 +94,8 @@ INSERT INTO `setting` (`vkey`, `vvalue`) VALUES
 ('close', '5'),
 ('payQf', '1'),
 ('wxpay', ''),
-('zfbpay', '');
+('zfbpay', ''),
+('schema_multi_qr_v1', '1');
 
 -- --------------------------------------------------------
 

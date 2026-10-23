@@ -44,7 +44,11 @@ Route::group('api', function () {
     Route::get('qrcode/list', 'api/Qrcode/list');
     Route::post('qrcode/add', 'api/Qrcode/add');
     Route::post('qrcode/parse', 'api/Qrcode/parse');
+    Route::post('qrcode/crop-reward', 'api/Qrcode/cropReward');
     Route::get('qrcode/dependencies', 'api/Qrcode/dependencies');
+    Route::get('qrcode/schema', 'api/Qrcode/schema');
+    Route::post('qrcode/upgrade', 'api/Qrcode/upgrade');
+    Route::post('qrcode/:id/settings', 'api/Qrcode/updateSettings');
     Route::get('qrcode/wechat', 'api/Qrcode/wechat');
     Route::get('qrcode/alipay', 'api/Qrcode/alipay');
     Route::post('qrcode/wechat', 'api/Qrcode/addWechat');

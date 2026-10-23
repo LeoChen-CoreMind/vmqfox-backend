@@ -423,38 +423,7 @@ class Monitor extends BaseController
      */
     private function closeEndOrder()
     {
-        // 从设置中获取订单关闭时间（分钟）
-        $closeTimeSetting = Db::name('setting')->where('vkey', 'close')->value('vvalue');
-        $minutes = intval($closeTimeSetting) > 0 ? intval($closeTimeSetting) : 5; // 默认为5分钟
-
-        $time = time() - ($minutes * 60);
-
-        $orders = Db::name("pay_order")
-            ->where("state", 0)
-            ->where("create_date", "<", $time)
-            ->select();
-
-        foreach($orders as $order) {
-            // 更新订单状态
-            Db::name("pay_order")
-                ->where("order_id", $order['order_id'])
-                ->update(["state" => -1, "close_date" => time()]);
-
-            // 删除对应的tmp_price记录
-            Db::name("tmp_price")
-                ->where("oid", $order['order_id'])
-                ->delete();
-        }
-
-        // 清理孤立的tmp_price记录
-        $tmpPrices = Db::name("tmp_price")->select();
-        foreach($tmpPrices as $tmp) {
-            $exists = Db::name("pay_order")->where("order_id", $tmp['oid'])->find();
-            if (!$exists) {
-                Db::name("tmp_price")->where("oid", $tmp['oid'])->delete();
-            }
-        }
-
+        \app\service\OrderCheckout::expire();
         return true;
     }
 }

@@ -71,7 +71,7 @@ RUN chmod +x /entrypoint.sh
 
 # Ensure runtime/cache directories are writable (ThinkPHP uses runtime/)
 RUN set -eux; \
-    mkdir -p runtime && \
+    mkdir -p runtime public/uploads/payment && \
     chown -R www:www /var/www/html
 
 USER www

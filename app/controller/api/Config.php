@@ -56,6 +56,11 @@ class Config extends BaseController
 
         // 更新配置
         foreach ($filteredSettings as $key => $value) {
+            if (in_array($key, ['wxpay', 'zfbpay'], true)) {
+                try { \app\service\QrcodeCatalog::saveDefault($key, (string) $value); }
+                catch (\Throwable $e) { return $this->error($e->getMessage()); }
+                continue;
+            }
             Db::name("setting")->where("vkey", $key)->update([
                 "vvalue" => $value
             ]);
@@ -197,10 +202,12 @@ class Config extends BaseController
             Db::name("setting")->where("vkey", "payQf")->update(["vvalue" => $params['payQf']]);
         }
         if (isset($params['wxpay'])) {
-            Db::name("setting")->where("vkey", "wxpay")->update(["vvalue" => $params['wxpay']]);
+            try { \app\service\QrcodeCatalog::saveDefault('wxpay', (string) $params['wxpay']); }
+            catch (\Throwable $e) { return $this->error($e->getMessage()); }
         }
         if (isset($params['zfbpay'])) {
-            Db::name("setting")->where("vkey", "zfbpay")->update(["vvalue" => $params['zfbpay']]);
+            try { \app\service\QrcodeCatalog::saveDefault('zfbpay', (string) $params['zfbpay']); }
+            catch (\Throwable $e) { return $this->error($e->getMessage()); }
         }
 
         return $this->success(null, '保存成功');

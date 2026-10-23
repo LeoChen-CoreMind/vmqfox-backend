@@ -26,6 +26,7 @@ services:
       - "${VMQ_BACKEND_PORT:-8000}:8000"
     volumes:
       - runtime_data:/var/www/html/runtime
+      - payment_images:/var/www/html/public/uploads/payment
     restart: unless-stopped
     environment:
       TZ: "${VMQ_TIMEZONE:-Asia/Shanghai}"
@@ -102,6 +103,8 @@ services:
       - vmqfox-network
 
 volumes:
+  payment_images:
+    driver: local
   mysql_data:
     driver: local
   redis_data:

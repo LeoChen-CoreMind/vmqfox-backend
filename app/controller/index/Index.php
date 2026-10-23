@@ -57,38 +57,7 @@ class Index
     // 关闭超时订单
     public function closeEndOrder()
     {
-        // 从设置中获取订单关闭时间（分钟）
-        $closeTimeSetting = Db::name('setting')->where('vkey', 'close')->value('vvalue');
-        $minutes = intval($closeTimeSetting) > 0 ? intval($closeTimeSetting) : 5; // 默认为5分钟
-
-        $time = time() - ($minutes * 60);
-
-        $orders = Db::name("pay_order")
-            ->where("state", 0)
-            ->where("create_date", "<", $time)
-            ->select();
-
-        foreach($orders as $order) {
-            // 更新订单状态
-            Db::name("pay_order")
-                ->where("order_id", $order['order_id'])
-                ->update(["state" => -1, "close_date" => time()]);
-
-            // 删除对应的tmp_price记录
-            Db::name("tmp_price")
-                ->where("oid", $order['order_id'])
-                ->delete();
-        }
-
-        // 清理孤立的tmp_price记录
-        $tmpPrices = Db::name("tmp_price")->select();
-        foreach($tmpPrices as $tmp) {
-            $exists = Db::name("pay_order")->where("order_id", $tmp['oid'])->find();
-            if (!$exists) {
-                Db::name("tmp_price")->where("oid", $tmp['oid'])->delete();
-            }
-        }
-
+        \app\service\OrderCheckout::expire();
         return true;
     }
 
@@ -267,96 +236,18 @@ class Index
             return json($this->getReturn(-1, "监控端状态异常，请检查"));
         }
 
-        $reallyPrice = bcmul($price ,100);
-
-        $payQf = Db::name("setting")->where("vkey", "payQf")->find();
-        $payQf = $payQf['vvalue'];
-
-        // 生成订单号
-        $orderId = date("YmdHms") . rand(1, 9) . rand(1, 9) . rand(1, 9) . rand(1, 9);
-
-        // 使用tmp_price表避免金额冲突
-        $ok = false;
-        for ($i = 0; $i < 10; $i++) {
-            $tmpPrice = $reallyPrice . "-" . $type;
-
-            try {
-                $row = Db::execute("INSERT IGNORE INTO tmp_price (price,oid) VALUES ('" . $tmpPrice . "','".$orderId."')");
-                if ($row) {
-                    $ok = true;
-                    break;
-                }
-            } catch (\Exception $e) {
-                // 处理异常情况
-            }
-
-            // 根据配置微调价格
-            if ($payQf == 1) {
-                $reallyPrice++;
-            } else if ($payQf == 2) {
-                $reallyPrice--;
-            }
+        try {
+            $created = \app\service\OrderCheckout::create([
+                'pay_id' => $payId, 'param' => $param, 'type' => (int) $type, 'price' => $price,
+                'notify_url' => $notify_url, 'return_url' => $return_url,
+            ]);
+        } catch (\Throwable $e) {
+            return json($this->getReturn(-1, $e->getMessage()));
         }
-
-        if (!$ok) {
-            return json($this->getReturn(-1, "订单超出负荷，请稍后重试"));
-        }
-
-        // 将分转换回元
-        $reallyPrice = bcdiv($reallyPrice, 100, 2);
-
-        // 获取支付URL
-        if ($type == 1) {
-            $payUrl = Db::name("setting")->where("vkey", "wxpay")->find();
-            $payUrl = $payUrl['vvalue'];
-        } else {
-            $payUrl = Db::name("setting")->where("vkey", "zfbpay")->find();
-            $payUrl = $payUrl['vvalue'];
-        }
-
-        // 检查URL是否为空，而不是检查是否等于"1"
-        if ($payUrl == "") {
-            if ($type == 1) {
-                return json($this->getReturn(-1, "微信支付未配置"));
-            } else {
-                return json($this->getReturn(-1, "支付宝支付未配置"));
-            }
-        }
-
-        $order = Db::name("pay_order")->where("pay_id", $payId)->find();
-        if ($order) {
-            return json($this->getReturn(-1, "订单号已存在"));
-        }
-
-        // 尝试查找匹配的二维码，如果找到则使用，否则使用默认URL
-        $isAuto = 1; // 默认为自动模式，使用setting中配置的URL
-        $_payUrl = Db::name("pay_qrcode")
-            ->where("price", $reallyPrice)
-            ->where("type", $type)
-            ->where("state", 0)
-            ->find();
-        if ($_payUrl) {
-            $payUrl = $_payUrl['pay_url'];
-            $isAuto = 0; // 使用二维码表中的URL
-        }
-
-        // 插入订单数据
-        Db::name("pay_order")->insert([
-            "order_id" => $orderId,
-            "pay_id" => $payId,
-            "type" => $type,
-            "price" => $price,
-            "really_price" => $reallyPrice,
-            "param" => $param,
-            "notify_url" => $notify_url,
-            "return_url" => $return_url,
-            "pay_url" => $payUrl, // 保存支付URL
-            "is_auto" => $isAuto, // 保存是否自动模式
-            "state" => 0,
-            "create_date" => time(),
-            "close_date" => 0, // 添加close_date默认值
-            "pay_date" => 0 // 添加pay_date默认值
-        ]);
+        $orderId = $created['order_id'];
+        $reallyPrice = $created['really_price'];
+        $payUrl = $created['pay_url'];
+        $isAuto = $created['is_auto'];
 
         // 根据是否为HTML模式返回不同的响应
         if ($isHtml == 1) {
@@ -372,6 +263,7 @@ class Index
                 "reallyPrice" => $reallyPrice,
                 "payUrl" => $payUrl,
                 "isAuto" => $isAuto,
+                "qrOptions" => json_decode($created['qr_options'], true),
                 "state" => 0,
                 "timeOut" => $time['vvalue'],
                 "date" => time()
@@ -716,9 +608,11 @@ class Index
                 "reallyPrice" => $res['really_price'],
                 "payUrl" => $res['pay_url'],
                 "isAuto" => $res['is_auto'],
+                "qrOptions" => \app\service\QrcodeCatalog::forOrder($res),
                 "state" => $res['state'],
                 "timeOut" => $time['vvalue'],
-                "date" => $res['create_date']
+                "date" => $res['create_date'],
+                "remainingSeconds" => max(0, (int) $res['create_date'] + max(1, (int) $time['vvalue']) * 60 - time())
             );
             return json($this->getReturn(1, "成功", $data));
         }else{

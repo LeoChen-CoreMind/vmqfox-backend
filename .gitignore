@@ -9,6 +9,7 @@
 !.env.docker.example
 
 /runtime/
+/public/uploads/payment/
 /vendor/
 /node_modules/
 /coverage/

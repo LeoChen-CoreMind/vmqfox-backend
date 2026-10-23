@@ -118,6 +118,7 @@
             '</div>' +
         '</div><div class="qr-card-grid" data-role="grid"></div><nav class="qr-pagination" data-role="pagination" aria-label="二维码分页"></nav>';
 
+        QrAdmin.mountUpgrade(root);
         var grid = root.querySelector('[data-role="grid"]');
         var count = root.querySelector('[data-role="count"]');
         var pagination = root.querySelector('[data-role="pagination"]');
@@ -137,19 +138,26 @@
 
             grid.innerHTML = state.items.map(function (item) {
                 var price = Number(item.price).toFixed(2);
-                var imageUrl = 'index.php/api/qrcode/generate?url=' + encodeURIComponent(item.pay_url);
+                var imageUrl = item.image_path || ('index.php/api/qrcode/generate?url=' + encodeURIComponent(item.pay_url));
                 var enabled = Number(item.state) === 0;
                 var id = normalizeId(item.id);
                 return '<article class="qr-card" data-id="' + escapeAttribute(id) + '">' +
                     '<img class="qr-card__image" src="' + escapeAttribute(imageUrl) + '" alt="收款二维码" loading="lazy">' +
                     '<div class="qr-card__content">' +
-                        '<div class="qr-card__heading"><strong>￥' + escapeAttribute(price) + '</strong>' +
+                        '<div class="qr-card__heading"><strong>' + escapeAttribute(item.name || (item.qr_kind === 'reward' ? '微信赞赏码' : '收款码')) + '</strong>' +
                             '<label class="qr-switch" title="' + (enabled ? '已启用' : '已禁用') + '"><input type="checkbox" data-action="toggle" ' + (enabled ? 'checked' : '') + '><span></span></label>' +
                         '</div>' +
                         '<div class="qr-card__url" title="' + escapeAttribute(item.pay_url) + '">' + escapeAttribute(item.pay_url) + '</div>' +
-                        '<div class="qr-card__actions">' +
-                            '<label class="qr-inline-amount"><span>金额</span><input type="text" inputmode="decimal" value="' + escapeAttribute(price) + '"></label>' +
-                            '<button type="button" class="qr-icon-btn" data-action="amount" title="保存金额"><i class="layui-icon layui-icon-ok"></i></button>' +
+                        '<div class="qr-metadata">' +
+                            '<label>名称<input data-field="name" maxlength="100" value="' + escapeAttribute(item.name || '') + '"></label>' +
+                            '<label>码种类<select data-field="qr_kind"><option value="normal">普通收款码</option>' +
+                                (type === 1 ? '<option value="reward"' + (item.qr_kind === 'reward' ? ' selected' : '') + '>微信赞赏码</option>' : '') + '</select></label>' +
+                            '<label>金额模式<select data-field="amount_mode"><option value="fixed">码内固定金额</option><option value="input"' + (item.amount_mode === 'input' ? ' selected' : '') + '>付款人输入金额</option></select></label>' +
+                            '<label>固定金额<input data-field="price" inputmode="decimal" value="' + escapeAttribute(price) + '"' + (item.amount_mode === 'input' ? ' disabled' : '') + '></label>' +
+                            '<label>排序<input data-field="sort_order" type="number" min="0" max="999999" value="' + escapeAttribute(item.sort_order || 0) + '"></label>' +
+                            '<label>本组参与数量<select data-field="group_limit">' + [1,2,3,4,5].map(function (n) { return '<option' + (n === Number(item.group_limit || 5) ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></label>' +
+                        '</div><div class="qr-card__actions">' +
+                            '<button type="button" class="qr-icon-btn" data-action="settings" title="保存设置"><i class="layui-icon layui-icon-ok"></i></button>' +
                             '<button type="button" class="qr-icon-btn qr-icon-btn--danger" data-action="delete" title="删除"><i class="layui-icon layui-icon-delete"></i></button>' +
                         '</div>' +
                     '</div>' +
@@ -230,20 +238,14 @@
                 return;
             }
 
-            if (button.getAttribute('data-action') === 'amount') {
-                var amount = card.querySelector('.qr-inline-amount input').value.trim();
-                if (!QrAdmin.isValidAmount(amount)) {
-                    layer.msg('金额必须大于 0，且最多保留两位小数');
-                    return;
-                }
-                QrAdmin.request({
-                    url: 'index.php/api/qrcode/' + id + '/amount',
-                    method: 'POST',
-                    data: {price: amount}
-                }).then(function () {
-                    layer.msg('金额已保存');
-                    load();
-                }, function (error) { layer.alert(error.message); });
+            if (button.getAttribute('data-action') === 'settings') {
+                var data = {};
+                card.querySelectorAll('[data-field]').forEach(function (field) { data[field.dataset.field] = field.value; });
+                if (data.amount_mode === 'input') data.price = '0';
+                button.disabled = true;
+                QrAdmin.request({url: 'index.php/api/qrcode/' + id + '/settings', method: 'POST', data: data})
+                    .then(function () { layer.msg('设置已保存'); load(); },
+                        function (error) { button.disabled = false; layer.alert(error.message); });
             }
 
             if (button.getAttribute('data-action') === 'delete') {
@@ -259,6 +261,10 @@
         });
 
         grid.addEventListener('change', function (event) {
+            if (event.target.matches('[data-field="amount_mode"]')) {
+                event.target.closest('[data-id]').querySelector('[data-field="price"]').disabled = event.target.value === 'input';
+                return;
+            }
             if (!event.target.matches('[data-action="toggle"]')) { return; }
             var checkbox = event.target;
             var id = normalizeId(checkbox.closest('[data-id]').getAttribute('data-id'));

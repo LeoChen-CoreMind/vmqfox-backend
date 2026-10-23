@@ -34,12 +34,14 @@ class QrcodeInput
             return null;
         }
 
-        $value = (float) $price;
-        if ($value <= 0) {
+        $parts = explode('.', $price, 2);
+        $whole = ltrim($parts[0], '0');
+        $normalized = ($whole === '' ? '0' : $whole) . '.' . str_pad($parts[1] ?? '', 2, '0');
+        if ($normalized === '0.00') {
             return null;
         }
 
-        return number_format($value, 2, '.', '');
+        return $normalized;
     }
 
     public static function normalizeId(mixed $id): ?int

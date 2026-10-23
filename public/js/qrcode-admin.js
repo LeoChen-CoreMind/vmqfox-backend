@@ -463,7 +463,7 @@
             processData: false,
             contentType: false
         }).then(function (result) {
-            if (result.url) {
+            if (result.url || result.image_path) {
                 return result;
             }
             return decodeInBrowser(file).then(function (url) {
@@ -510,7 +510,7 @@
         if (item.status === 'skipped') { return '已放弃'; }
         if (item.status === 'saved') { return '已保存'; }
         if (item.amountStatus === 'detected') { return '已自动识别'; }
-        if (item.status === 'ready') { return '请确认金额'; }
+        if (item.status === 'ready') { return item.qr_kind === 'reward' ? '请确认码图' : '请确认金额'; }
         return '等待识别';
     }
 
@@ -520,7 +520,7 @@
         }
 
         return items.map(function (item) {
-            var disabled = item.commitLocked ? ' disabled' : '';
+            var disabled = item.commitLocked || item.cropping || item.status === 'queued' || item.status === 'processing' ? ' disabled' : '';
             var statusClass = item.status === 'error'
                 ? ' is-error'
                 : (item.status === 'processing' ? ' is-processing'
@@ -528,18 +528,28 @@
                         : (item.status === 'skipped' ? ' is-skipped'
                             : (item.status === 'saved' ? ' is-saved'
                                 : (item.amountStatus === 'detected' ? ' is-success' : ' is-ready')))));
-            var detail = item.error || item.warning || (item.decoder ? '识别引擎：' + item.decoder : '等待处理');
-            return '<article class="qr-card qr-upload-card" data-id="' + escapeHtml(item.id) + '">' +
-                '<img class="qr-card__image" src="' + escapeHtml(item.preview) + '" alt="二维码预览">' +
+            var detail = item.error || item.cropWarning || item.warning || (item.decoder ? '识别引擎：' + item.decoder : '等待处理');
+            return '<article class="qr-card qr-upload-card' + (item.qr_kind === 'reward' ? ' is-reward' : '') + '" data-id="' + escapeHtml(item.id) + '">' +
+                '<a class="qr-preview-link" href="' + escapeHtml(item.preview) + '" target="_blank" rel="noopener" title="查看完整码图"><img class="qr-card__image" src="' + escapeHtml(item.preview) + '" alt="二维码预览"></a>' +
                 '<div class="qr-card__content">' +
                     '<div class="qr-card__heading">' +
                         '<strong class="qr-upload-card__name" title="' + escapeHtml(item.file.name) + '">' + escapeHtml(item.file.name) + '</strong>' +
                         '<span class="qr-status' + statusClass + '">' + statusText(item) + '</span>' +
                     '</div>' +
+                    '<label class="qr-url-field"><span>名称</span><input data-field="name" maxlength="100" value="' + escapeHtml(item.name || '') + '"' + disabled + '></label>' +
+                    '<label class="qr-url-field"><span>码种类</span><select data-field="qr_kind"' + disabled + '><option value="normal">普通收款码</option>' +
+                        (item.type === 1 ? '<option value="reward"' + (item.qr_kind === 'reward' ? ' selected' : '') + '>微信赞赏码</option>' : '') + '</select></label>' +
+                    '<label class="qr-url-field"><span>金额模式</span><select data-field="amount_mode"' + disabled + '><option value="fixed">码内固定金额</option><option value="input"' + (item.amount_mode === 'input' ? ' selected' : '') + '>付款人输入金额</option></select></label>' +
+                    '<label class="qr-url-field"><span>排序</span><input type="number" min="0" max="999999" data-field="sort_order" value="' + escapeHtml(item.sort_order || 0) + '"' + disabled + '></label>' +
+                    (item.qr_kind === 'reward' && item.originalImagePath ?
+                        '<div class="qr-crop-actions"><span>' + (item.cropping ? '正在定位码区' : (item.croppedImagePath && item.image_path === item.croppedImagePath ? '裁剪预览' : '原图预览')) + '</span>' +
+                        '<button type="button" class="qr-icon-btn" data-action="crop-reward" title="裁剪赞赏码区域" aria-label="裁剪赞赏码区域"' + disabled + '><i class="layui-icon layui-icon-picture"></i></button>' +
+                        '<button type="button" class="qr-icon-btn" data-action="restore-image" title="使用原图" aria-label="使用原图"' + disabled + '><i class="layui-icon layui-icon-return"></i></button></div>' : '') +
+                    '<label><input type="checkbox" data-field="confirmed"' + (item.confirmed ? ' checked' : '') + disabled + '>已确认码种类、金额模式及码图完整</label>' +
                     '<label class="qr-url-field"><span>收款链接</span><input type="text" data-field="url" value="' + escapeHtml(item.url) + '" placeholder="自动识别失败时可手动粘贴"' + disabled + '></label>' +
                     '<div class="qr-upload-item__detail" title="' + escapeHtml(detail) + '">' + escapeHtml(detail) + '</div>' +
                     '<div class="qr-upload-card__actions">' +
-                        '<label class="qr-inline-amount"><span>金额</span><input type="text" inputmode="decimal" data-field="amount" value="' + escapeHtml(item.amount) + '" placeholder="0.00"' + disabled + '></label>' +
+                        '<label class="qr-inline-amount"><span>金额</span><input type="text" inputmode="decimal" data-field="amount" value="' + escapeHtml(item.amount) + '" placeholder="0.00"' + (item.amount_mode === 'input' ? ' disabled' : disabled) + '></label>' +
                         '<button type="button" class="qr-icon-btn qr-icon-btn--danger" data-action="remove" title="移除"' + disabled + '><i class="layui-icon layui-icon-delete"></i></button>' +
                     '</div>' +
                 '</div>' +
@@ -700,6 +710,31 @@
         });
     }
 
+    function mountUpgrade(root) {
+        var band = document.createElement('div');
+        band.className = 'qr-upgrade';
+        root.insertBefore(band, root.firstChild);
+        function refresh() {
+            return request({url: API_ROOT + '/schema'}).then(function (state) {
+                band.innerHTML = '';
+                if (state.ready) return;
+                var text = document.createElement('p');
+                text.textContent = '已有数据库需要增量升级。历史订单和配置会保留，请先备份数据库。';
+                var button = document.createElement('button');
+                button.className = 'layui-btn';
+                button.textContent = '升级二维码数据库';
+                button.onclick = function () {
+                    button.disabled = true;
+                    request({url: API_ROOT + '/upgrade', method: 'POST'}).then(function () {
+                        band.textContent = '升级完成';
+                    }, function (error) { button.disabled = false; text.textContent = error.message + '；可修复后重试升级'; });
+                };
+                band.appendChild(text); band.appendChild(button);
+            }, function (error) { band.textContent = error.message; });
+        }
+        refresh();
+    }
+
     function mountUpload(options) {
         var root = typeof options.root === 'string' ? document.querySelector(options.root) : options.root;
         if (!root) { return null; }
@@ -722,6 +757,7 @@
         '</div><div class="qr-card-grid qr-upload-list" data-role="items"></div>';
 
         root.classList.add('qr-admin--upload');
+        mountUpgrade(root);
 
         var input = root.querySelector('[data-role="file"]');
         var itemContainer = root.querySelector('[data-role="items"]');
@@ -737,7 +773,7 @@
 
         function isBusy() {
             return items.some(function (item) {
-                return item.status === 'queued' || item.status === 'processing';
+                return item.status === 'queued' || item.status === 'processing' || item.cropping;
             });
         }
 
@@ -757,20 +793,94 @@
                 return {
                     url: result.url || '',
                     amount: result.amount || '',
+                    image_path: result.image_path || '',
+                    originalImagePath: result.image_path || '',
                     amountStatus: result.amount_status || 'manual',
                     decoder: result.decoder || '',
-                    warning: result.warning || ''
+                    warning: result.warning || '识别结果仅供参考，请确认码种类和金额模式'
                 };
             });
-        }, 2, function () {
+        }, 2, function (item) {
+            if (item.status === 'ready' && item.qr_kind === 'reward' && !item.cropAttempted) cropReward(item);
             render();
         });
+
+        function restoreImage(item) {
+            item.image_path = item.originalImagePath || '';
+            item.preview = item.previewObjectUrl;
+            item.confirmed = false;
+            item.cropWarning = '';
+        }
+
+        function cropReward(item) {
+            if (item.cropping || item.commitLocked || item.qr_kind !== 'reward' || !item.originalImagePath) return;
+            item.confirmed = false;
+            if (item.croppedImagePath) {
+                item.image_path = item.croppedImagePath;
+                item.preview = item.croppedImagePath;
+                item.cropWarning = '请确认裁剪图包含完整码点和留白；尚未验证实际支付';
+                render();
+                return;
+            }
+            item.cropAttempted = true;
+            item.cropping = true;
+            render();
+            request({url: API_ROOT + '/crop-reward', method: 'POST', data: {image_path: item.originalImagePath}}).then(function (result) {
+                if (findItem(item.id) !== item) return;
+                if (result.status === 'cropped' && result.image_path) {
+                    item.croppedImagePath = result.image_path;
+                    item.image_path = result.image_path;
+                    item.preview = result.image_path;
+                }
+                item.cropWarning = result.warning || '已保留原图';
+            }, function () {
+                if (findItem(item.id) !== item) return;
+                restoreImage(item);
+                item.cropWarning = '裁剪暂不可用，已保留原图，可稍后重试';
+            }).then(function () {
+                if (findItem(item.id) !== item) return;
+                item.cropping = false;
+                render();
+            });
+        }
 
         function render() {
             renderUploadItems(itemContainer, items);
             summary.textContent = items.length + ' 个文件';
             saveButton.disabled = isBusy() || commitInFlight;
 
+            Array.prototype.forEach.call(itemContainer.querySelectorAll('[data-field="name"],[data-field="sort_order"],[data-field="qr_kind"],[data-field="amount_mode"],[data-field="confirmed"]'), function (field) {
+                field.addEventListener('change', function () {
+                    var item = findItem(field.closest('[data-id]').getAttribute('data-id'));
+                    if (!item || item.commitLocked || item.cropping) return;
+                    var key = field.getAttribute('data-field');
+                    item[key] = key === 'confirmed' ? field.checked : field.value;
+                    if (key === 'qr_kind' || key === 'amount_mode') {
+                        item.confirmed = false;
+                        if (key === 'qr_kind') {
+                            if (item.qr_kind === 'reward') {
+                                item.amount_mode = 'input';
+                                cropReward(item);
+                            } else {
+                                restoreImage(item);
+                            }
+                        }
+                        render();
+                    }
+                });
+            });
+            Array.prototype.forEach.call(itemContainer.querySelectorAll('[data-action="crop-reward"],[data-action="restore-image"]'), function (button) {
+                button.addEventListener('click', function () {
+                    var item = findItem(button.closest('[data-id]').getAttribute('data-id'));
+                    if (!item || item.commitLocked || item.cropping) return;
+                    if (button.getAttribute('data-action') === 'restore-image') {
+                        restoreImage(item);
+                        render();
+                    } else {
+                        cropReward(item);
+                    }
+                });
+            });
             Array.prototype.forEach.call(itemContainer.querySelectorAll('[data-field="url"]'), function (field) {
                 field.addEventListener('input', function () {
                     var card = field.closest('[data-id]');
@@ -824,6 +934,9 @@
                 url: '',
                 amount: '',
                 amountStatus: 'manual',
+                qr_kind: 'normal', amount_mode: 'fixed', name: '', sort_order: 0, type: type,
+                image_path: '', originalImagePath: '', croppedImagePath: '', confirmed: false,
+                cropping: false, cropAttempted: false, cropWarning: '',
                 status: 'queued',
                 error: ''
             };
@@ -868,52 +981,39 @@
             }
             if (commitInFlight) { return; }
             for (var i = 0; i < items.length; i++) {
-                if (!items[i].url) {
+                if (!items[i].url && !items[i].image_path) {
                     message('序号 ' + (i + 1) + ' 未识别到二维码内容');
                     return;
                 }
-                if (!isValidAmount(items[i].amount)) {
+                if (items[i].amount_mode === 'fixed' && !isValidAmount(items[i].amount)) {
                     message('序号 ' + (i + 1) + ' 的金额有误');
                     return;
                 }
             }
 
+            if (items.some(function (item) { return !item.confirmed; })) { message('请逐张确认码种类和金额模式'); return; }
             var batch = items.slice();
             var itemById = {};
             var payloadItems = batch.map(function (item) {
                 item.commitLocked = true;
                 itemById[item.id] = item;
-                return {client_id: item.id, pay_url: item.url.trim(), price: item.amount.trim()};
+                return {client_id: item.id, pay_url: item.url.trim(), price: item.amount_mode === 'input' ? '0' : item.amount.trim(),
+                    image_path: item.image_path, qr_kind: item.qr_kind, amount_mode: item.amount_mode,
+                    name: item.name, sort_order: item.sort_order};
             });
             commitInFlight = true;
             render();
 
             function commitPreview(preview) {
-                var modePromise = preview.has_conflicts
-                    ? chooseConflictMode(preview)
-                    : Promise.resolve('replace_all');
-                return modePromise.then(function (mode) {
-                    return buildConflictDecisions(preview, mode, function (current, candidate, conflict) {
-                        return confirmIndividualConflict(current, candidate, conflict, itemById, label);
-                    });
-                }).then(function (decisions) {
-                    return request({
-                        url: API_ROOT + '/batch/commit',
-                        method: 'POST',
-                        data: {
-                            type: type,
-                            items: payloadItems,
-                            conflict_token: preview.conflict_token,
-                            decisions: decisions
-                        }
-                    });
-                }, function (error) {
-                    throw error;
-                }).catch(function (error) {
-                    if (error.code === 409 && error.data && error.data.preview) {
-                        return commitPreview(error.data.preview);
-                    }
-                    throw error;
+                var decisions = preview.items.map(function (item) {
+                    return {client_id: item.client_id, action: item.existing_id ? 'skip' : 'insert'};
+                });
+                if (preview.has_conflicts) {
+                    message('相同链接或图片将跳过；不同收款码按同金额追加');
+                }
+                return request({
+                    url: API_ROOT + '/batch/commit', method: 'POST',
+                    data: {type: type, items: payloadItems, conflict_token: preview.conflict_token, decisions: decisions}
                 });
             }
 
@@ -989,6 +1089,7 @@
         fileIdentity: fileIdentity,
         isValidAmount: isValidAmount,
         mount: mountUpload,
+        mountUpgrade: mountUpgrade,
         mountUpload: mountUpload,
         request: request,
         responseError: responseError,

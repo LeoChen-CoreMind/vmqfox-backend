@@ -8,11 +8,46 @@ use app\service\QrcodeBatch;
 use app\service\QrcodeConflictChanged;
 use app\service\QrcodeInput;
 use app\service\QrcodeServer;
+use app\service\QrcodeMigration;
+use app\service\QrcodeCatalog;
 use think\facade\Db;
 use think\facade\Request;
 
 class Qrcode extends BaseController
 {
+    public function schema()
+    {
+        try { return $this->success(QrcodeMigration::status()); }
+        catch (\Throwable $e) { return $this->error('无法读取二维码数据库状态'); }
+    }
+
+    public function upgrade()
+    {
+        try { return $this->success(QrcodeMigration::upgrade(), '二维码数据库升级完成'); }
+        catch (\Throwable $e) { error_log('QR schema upgrade failed: ' . $e->getMessage()); return $this->error($e->getMessage()); }
+    }
+
+    public function updateSettings($id)
+    {
+        try {
+            if (!QrcodeMigration::ready()) throw new \RuntimeException('请先升级二维码数据库');
+            $row = Db::name('pay_qrcode')->where('id', QrcodeInput::normalizeId($id))->find();
+            if (!$row) return $this->error('二维码不存在', 404);
+            $data = QrcodeCatalog::normalize(array_merge($row, Request::param()), (int) $row['type']);
+            $limit = filter_var(Request::param('group_limit', 5), FILTER_VALIDATE_INT);
+            if ($limit === false || $limit < 1 || $limit > 5) throw new \InvalidArgumentException('参与数量必须为 1 到 5');
+            Db::transaction(function () use ($id, $data, $row, $limit): void {
+                QrcodeCatalog::lock();
+                $others = Db::name('pay_qrcode')->where('type', $row['type'])->where('id', '<>', (int) $id)->select()->toArray();
+                QrcodeCatalog::validateRows(array_merge($others, [$data]));
+                Db::name('pay_qrcode')->where('id', (int) $id)->update($data);
+                Db::execute('INSERT INTO ' . QrcodeMigration::table('setting')
+                    . ' (vkey,vvalue) VALUES (?,?) ON DUPLICATE KEY UPDATE vvalue=VALUES(vvalue)',
+                    [QrcodeCatalog::limitKey(QrcodeCatalog::group($data)), (string) $limit]);
+            });
+            return $this->success(null, '二维码设置已保存');
+        } catch (\Throwable $e) { return $this->error($e->getMessage()); }
+    }
     public function dependencies()
     {
         $runner = new ProcessRunner();
@@ -81,6 +116,7 @@ class Qrcode extends BaseController
     public function batchPreview()
     {
         try {
+            if (!QrcodeMigration::ready()) return $this->error('请先升级二维码数据库');
             $type = QrcodeInput::normalizeType(Request::param('type'));
             if ($type === null) {
                 throw new \InvalidArgumentException('支付类型错误');
@@ -97,6 +133,7 @@ class Qrcode extends BaseController
     public function batchCommit()
     {
         try {
+            if (!QrcodeMigration::ready()) return $this->error('请先升级二维码数据库');
             $type = QrcodeInput::normalizeType(Request::param('type'));
             if ($type === null) {
                 throw new \InvalidArgumentException('支付类型错误');
@@ -164,42 +201,20 @@ class Qrcode extends BaseController
 
     public function updateAmount($id)
     {
-        $price = QrcodeInput::normalizePrice(Request::param('price'));
-        if ($price === null) {
-            return $this->error('金额必须大于 0，且最多保留两位小数');
-        }
-
         try {
-            $result = Db::transaction(function () use ($id, $price): array {
-                return $this->withQrWriteLock(function () use ($id, $price): array {
-                    $qrcode = Db::name('pay_qrcode')->where('id', (int) $id)->find();
-                    if (!$qrcode) {
-                        return ['status' => 'missing'];
-                    }
-                    if ($this->hasDuplicateAmount((int) $qrcode['type'], $price, (int) $id)) {
-                        return ['status' => 'duplicate'];
-                    }
-
-                    $updated = Db::name('pay_qrcode')->where('id', (int) $id)->update(['price' => $price]);
-                    if ($updated === false) {
-                        throw new \RuntimeException('Amount update failed');
-                    }
-                    return ['status' => 'ok'];
-                });
+            if (!QrcodeMigration::ready()) throw new \RuntimeException('请先升级二维码数据库');
+            Db::transaction(function () use ($id): void {
+                QrcodeCatalog::lock();
+                $row = Db::name('pay_qrcode')->where('id', (int) $id)->find();
+                if (!$row) throw new \InvalidArgumentException('二维码不存在');
+                $row['price'] = Request::param('price');
+                $data = QrcodeCatalog::normalize($row, (int) $row['type']);
+                $others = Db::name('pay_qrcode')->where('type', $row['type'])->where('id', '<>', (int) $id)->select()->toArray();
+                QrcodeCatalog::validateRows(array_merge($others, [$data]));
+                Db::name('pay_qrcode')->where('id', (int) $id)->update($data);
             });
-        } catch (\Throwable $e) {
-            error_log('QR amount update failed: ' . $e->getMessage());
-            return $this->error('金额修改失败');
-        }
-
-        if ($result['status'] === 'missing') {
-            return $this->error('二维码不存在', 404);
-        }
-        if ($result['status'] === 'duplicate') {
-            return $this->error('同一支付类型已存在相同金额的二维码');
-        }
-
-        return $this->success(['price' => $price], '金额修改成功');
+            return $this->success(null, '金额已保存');
+        } catch (\Throwable $e) { return $this->error($e->getMessage()); }
     }
 
     public function bind($id)
@@ -237,17 +252,27 @@ class Qrcode extends BaseController
     public function parse()
     {
         $file = Request::file('file');
-        if (!$file) {
-            return $this->error('请选择要识别的二维码图片');
-        }
-
+        if (!$file) return $this->error('请选择二维码图片');
         try {
-            $result = (new PaymentQrAnalyzer())->analyze((string) $file->getRealPath());
-            return $this->success($result, '识别完成');
-        } catch (\InvalidArgumentException $e) {
-            return $this->error($e->getMessage());
+            $path = (string) $file->getRealPath();
+            $image = \app\service\PaymentImage::save($path);
+            try {
+                $result = (new PaymentQrAnalyzer())->analyze($path);
+            } catch (\Throwable $e) {
+                $result = ['url' => '', 'amount' => '', 'amount_status' => 'manual', 'candidates' => [],
+                    'decoder' => null, 'warning' => '原图已保存，请确认码种类和金额模式'];
+            }
+            $result['image_path'] = $image;
+            return $this->success($result, '图片已保存');
+        } catch (\Throwable $e) { return $this->error($e->getMessage()); }
+    }
+
+    public function cropReward()
+    {
+        try {
+            $result = (new \app\service\RewardImageCropper())->crop((string) Request::post('image_path', ''));
+            return $this->success($result, '图片处理完成');
         } catch (\Throwable $e) {
-            error_log('Payment QR analysis failed: ' . $e->getMessage());
             return $this->error($e->getMessage());
         }
     }
@@ -294,6 +319,7 @@ class Qrcode extends BaseController
 
         foreach ($items as &$item) {
             $item['id'] = (string) $item['id'];
+            $item['group_limit'] = isset($item['amount_mode']) ? QrcodeCatalog::groupLimit(QrcodeCatalog::group($item)) : 5;
             $item['type_text'] = (int) $item['type'] === 1 ? '微信' : '支付宝';
             $item['state_text'] = (int) $item['state'] === 0 ? '正常' : '禁用';
         }
@@ -310,42 +336,17 @@ class Qrcode extends BaseController
 
     private function createForType(int $type)
     {
-        $payUrl = trim((string) Request::param('pay_url'));
-        if ($payUrl === '' || strlen($payUrl) > 255) {
-            return $this->error('收款码内容不能为空且不能超过 255 字节');
-        }
-        $price = QrcodeInput::normalizePrice(Request::param('price'));
-        if ($price === null) {
-            return $this->error('金额必须大于 0，且最多保留两位小数');
-        }
-
         try {
-            $result = Db::transaction(function () use ($type, $payUrl, $price): array {
-                return $this->withQrWriteLock(function () use ($type, $payUrl, $price): array {
-                    if ($this->hasDuplicateAmount($type, $price)) {
-                        return ['status' => 'duplicate'];
-                    }
-                    $id = Db::name('pay_qrcode')->insertGetId([
-                        'type' => $type,
-                        'pay_url' => $payUrl,
-                        'price' => $price,
-                        'state' => 0,
-                    ]);
-                    if (!$id) {
-                        throw new \RuntimeException('QR insert failed');
-                    }
-                    return ['status' => 'ok', 'id' => $id];
-                });
+            if (!QrcodeMigration::ready()) throw new \RuntimeException('请先升级二维码数据库');
+            $data = QrcodeCatalog::normalize(Request::param(), $type);
+            $id = Db::transaction(function () use ($data) {
+                QrcodeCatalog::lock();
+                $rows = Db::name('pay_qrcode')->where('type', $data['type'])->select()->toArray();
+                QrcodeCatalog::validateRows(array_merge($rows, [$data]));
+                return Db::name('pay_qrcode')->insertGetId($data + ['state' => 0]);
             });
-        } catch (\Throwable $e) {
-            error_log('QR create failed: ' . $e->getMessage());
-            return $this->error('添加二维码失败');
-        }
-
-        if ($result['status'] === 'duplicate') {
-            return $this->error('同一支付类型已存在相同金额的二维码');
-        }
-        return $this->success(['id' => $result['id']], '添加二维码成功');
+            return $this->success(['id' => (string) $id], '添加二维码成功');
+        } catch (\Throwable $e) { return $this->error($e->getMessage()); }
     }
 
     private function deleteForType(int $id, ?int $type)
@@ -386,76 +387,35 @@ class Qrcode extends BaseController
      */
     private function findExistingByPrices(int $type, array $prices): array
     {
-        $prices = array_values(array_unique($prices));
-        if ($prices === []) {
-            return [];
-        }
-
-        return Db::name('pay_qrcode')
-            ->where('type', $type)
-            ->whereIn('price', $prices)
-            ->order('id asc')
-            ->select()
-            ->toArray();
+        return Db::name('pay_qrcode')->where('type', $type)->order('id asc')->select()->toArray();
     }
 
-    /**
-     * @param array<int,array{client_id:string,action:string,target_id:?int,pay_url:string,price:string}> $plan
-     */
     private function applyBatchPlan(int $type, array $plan): array
     {
         $results = [];
         $totals = ['inserted' => 0, 'replaced' => 0, 'skipped' => 0, 'failed' => 0];
-
         foreach ($plan as $item) {
             if ($item['action'] === 'skip') {
                 $totals['skipped']++;
                 $results[] = ['client_id' => $item['client_id'], 'status' => 'skipped'];
                 continue;
             }
-
+            $data = QrcodeCatalog::normalize($item, $type);
             if ($item['action'] === 'replace') {
-                $updated = Db::name('pay_qrcode')
-                    ->where('id', $item['target_id'])
-                    ->where('type', $type)
-                    ->where('price', $item['price'])
-                    ->update(['pay_url' => $item['pay_url']]);
-                if ($updated === false) {
-                    throw new \RuntimeException('QR replacement failed');
-                }
-                $totals['replaced']++;
-                $results[] = [
-                    'client_id' => $item['client_id'],
-                    'status' => 'replaced',
-                    'id' => (string) $item['target_id'],
-                ];
-                continue;
+                $id = $item['target_id'];
+                Db::name('pay_qrcode')->where('id', $id)->update($data);
+                $status = 'replaced';
+            } else {
+                $id = Db::name('pay_qrcode')->insertGetId($data + ['state' => 0]);
+                $status = 'inserted';
             }
-
-            $id = Db::name('pay_qrcode')->insertGetId([
-                'type' => $type,
-                'pay_url' => $item['pay_url'],
-                'price' => $item['price'],
-                'state' => 0,
-            ]);
-            if (!$id) {
-                throw new \RuntimeException('QR batch insert failed');
-            }
-            $totals['inserted']++;
-            $results[] = ['client_id' => $item['client_id'], 'status' => 'inserted', 'id' => (string) $id];
+            $totals[$status]++;
+            $results[] = ['client_id' => $item['client_id'], 'id' => (string) $id, 'status' => $status];
         }
-
         return ['results' => $results, 'totals' => $totals];
     }
 
-    private function hasDuplicateAmount(int $type, string $price, ?int $excludeId = null): bool
-    {
-        $query = Db::name('pay_qrcode')->where('type', $type)->where('price', $price);
-        if ($excludeId !== null) {
-            $query->where('id', '<>', $excludeId);
-        }
-        return $query->find() !== null;
-    }
+
 
     private function withQrWriteLock(callable $callback): mixed
     {

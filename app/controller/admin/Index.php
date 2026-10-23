@@ -167,6 +167,11 @@ class Index
         foreach (['notifyUrl', 'returnUrl', 'key', 'close', 'payQf', 'wxpay', 'zfbpay'] as $key) {
             $value = Request::param($key);
             if ($value !== null) {
+                if (in_array($key, ['wxpay', 'zfbpay'], true)) {
+                    try { \app\service\QrcodeCatalog::saveDefault($key, (string) $value); }
+                    catch (\Throwable $e) { return json($this->getReturn(-1, $e->getMessage())); }
+                    continue;
+                }
                 Db::name("setting")->where("vkey", $key)->update(["vvalue" => $value]);
             }
         }
@@ -178,11 +183,18 @@ class Index
         if (!$this->checkAdminSession()){
             return json($this->getReturn(-1,"没有登录"));
         }
-        $db = Db::name("pay_qrcode")->insert(array(
-            "type"=>Request::param("type"),
-            "pay_url"=>Request::param("pay_url"),
-            "price"=>Request::param("price"),
-        ));
+        try {
+            if (!\app\service\QrcodeMigration::ready()) throw new \RuntimeException('请先在二维码管理中升级数据库');
+            $type = \app\service\QrcodeInput::normalizeType(Request::param('type'));
+            if ($type === null) throw new \InvalidArgumentException('支付类型错误');
+            $data = \app\service\QrcodeCatalog::normalize(Request::param(), $type);
+            Db::transaction(function () use ($data): void {
+                \app\service\QrcodeCatalog::lock();
+                $rows = Db::name('pay_qrcode')->where('type', $data['type'])->select()->toArray();
+                \app\service\QrcodeCatalog::validateRows(array_merge($rows, [$data]));
+                Db::name('pay_qrcode')->insert($data + ['state' => 0]);
+            });
+        } catch (\Throwable $e) { return json($this->getReturn(-1, $e->getMessage())); }
         return json($this->getReturn());
     }
 

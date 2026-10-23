@@ -477,3 +477,19 @@
     .qr-conflict-summary dl div,
     .qr-conflict-review dl div { grid-template-columns: 1fr; gap: 3px; }
 }
+.qr-metadata { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin: 12px 0; }
+.qr-metadata label { display: grid; gap: 5px; min-width: 0; }
+.qr-metadata input, .qr-metadata select, .qr-url-field select { box-sizing: border-box; width: 100%; min-width: 0; height: 34px; padding: 4px; border: 1px solid #ccc; border-radius: 4px; }
+.qr-upgrade { padding: 12px 0; }
+.qr-upgrade:empty { display: none; }
+.qr-upgrade p { margin-bottom: 10px; }
+.qr-card__image { object-fit: contain; }
+.qr-crop-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+.qr-upload-card.is-reward { grid-template-columns: minmax(0, 1fr); }
+.qr-upload-card.is-reward .qr-preview-link { justify-self: center; max-width: 100%; }
+.qr-upload-card.is-reward .qr-card__image { width: 240px; height: 240px; max-width: 100%; }
