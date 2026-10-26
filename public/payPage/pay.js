@@ -86,7 +86,7 @@
             var area = document.createElement('div'); area.className = 'image-area';
             var img = document.createElement('img'); img.alt = option.name || '付款二维码'; img.width = 256; img.height = 256; img.src = imageUrl(option);
             var imageError = document.createElement('p'); imageError.className = 'image-error'; imageError.hidden = true;
-            img.onerror = function () { imageError.hidden = false; imageError.textContent = '图片加载失败，请切换其他收款码或刷新页面'; save.hidden = true; };
+            img.onerror = function () { imageError.hidden = false; imageError.textContent = '图片加载失败，请切换其他收款码或刷新页面'; if (save) save.hidden = true; if (screenshot) screenshot.hidden = true; };
             area.appendChild(img);
             var caption = document.createElement('figcaption'); caption.textContent = option.name || (option.qrKind === 'reward' ? '微信赞赏码' : '收款码');
             var hint = document.createElement('p'); hint.className = 'amount-hint';
@@ -94,22 +94,36 @@
             hintAmount.append(option.amountMode === 'fixed' ? '请核对付款金额 ' :
                 (option.qrKind === 'reward' ? '请在赞赏页面输入 ' : '请在付款时输入 '), emphasis('¥' + money(order.reallyPrice), 'critical'));
             hint.append(hintAmount);
-            var save = document.createElement('a');
-            save.className = 'save-code';
-            save.href = img.src; save.download = 'payment-' + orderId + '-' + option.id + (option.imageUrl ? '.' + option.imageUrl.split('.').pop() : '.png');
-            save.innerHTML = '<i class="layui-icon layui-icon-download-circle" aria-hidden="true"></i>保存二维码';
-            save.addEventListener('click', stopRotation);
-            figure.append(area, caption, hint, imageError, save); $('codes').appendChild(figure);
+            var save = null, screenshot = null;
+            figure.append(area, caption, hint, imageError);
+            if (mobile.matches) {
+                screenshot = document.createElement('p'); screenshot.className = 'screenshot-note';
+                screenshot.append(emphasis('请截图保存二维码', 'critical'), document.createElement('br'),
+                    '再打开' + (Number(order.payType) === 1 ? '微信' : '支付宝') + '扫一扫，从相册选择付款。');
+                figure.appendChild(screenshot);
+            } else {
+                save = document.createElement('a');
+                save.className = 'save-code';
+                save.href = img.src; save.download = 'payment-' + orderId + '-' + option.id + (option.imageUrl ? '.' + option.imageUrl.split('.').pop() : '.png');
+                save.innerHTML = '<i class="layui-icon layui-icon-download-circle" aria-hidden="true"></i>保存二维码';
+                save.addEventListener('click', stopRotation);
+                figure.appendChild(save);
+            }
+            $('codes').appendChild(figure);
         });
         var pages = Math.ceil(list.length / size);
-        $('position').textContent = list.length ? (start + 1) + (visible.length > 1 ? '–' + (start + visible.length) : '') + ' / ' + list.length : '';
+        $('position').textContent = list.length ? (mobile.matches ? (index + 1) + ' / ' + list.length :
+            '第 ' + (Math.floor(start / size) + 1) + ' / ' + pages + ' 页') : '';
+        $('previous').title = mobile.matches ? '上一个收款码' : '上一组收款码';
+        $('previous').setAttribute('aria-label', $('previous').title);
         $('previous').disabled = pages <= 1; $('next').disabled = pages <= 1;
         $('rotation').disabled = pages <= 1;
         $('switcher').hidden = pages <= 1;
         $('rotation-control').hidden = pages <= 1;
         renderPaymentHelp(all, list);
         if (pages <= 1) stopRotation();
-        $('next').innerHTML = '<i class="layui-icon layui-icon-refresh" aria-hidden="true"></i> ' + (mobile.matches ? '换一个码' : '换一组码');
+        $('next').innerHTML = '<i class="layui-icon layui-icon-refresh" aria-hidden="true"></i> ' + (mobile.matches ? '换一个收款码' : '换一组收款码');
+        $('single-payment-note').hidden = all.length <= 1 || list.length === 0;
         $('status').textContent = list.length ? '' : '暂无可用收款码，请联系商家。';
     }
     function change(direction, manual) {

@@ -157,6 +157,10 @@ class Index
         if (!$this->checkAdminSession()){
             return json($this->getReturn(-1,"没有登录"));
         }
+        $payQf = Request::param('payQf');
+        if ($payQf !== null && \app\service\QrcodeInput::normalizeDistinctionMode($payQf) === null) {
+            return json($this->getReturn(-1, '区分方式必须为金额递增或金额递减'));
+        }
         $credentials = new AdminCredentials();
         $current = $credentials->publicSettings();
         $credentials->update(

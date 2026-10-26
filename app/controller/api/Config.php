@@ -177,6 +177,10 @@ class Config extends BaseController
     public function updateSettings()
     {
         $params = Request::param();
+        if (array_key_exists('payQf', $params)
+            && \app\service\QrcodeInput::normalizeDistinctionMode($params['payQf']) === null) {
+            return $this->error('区分方式必须为金额递增或金额递减');
+        }
 
         $credentials = new AdminCredentials();
         $publicSettings = $credentials->publicSettings();

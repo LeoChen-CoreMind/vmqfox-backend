@@ -6,8 +6,8 @@
     <title>订单付款</title>
     <meta name="theme-color" content="#ffffff">
     <link rel="stylesheet" href="../layui/css/layui.css?v=20261024-payment-ui">
-    <link rel="stylesheet" href="pay.css?v=20261024-deadline-5">
-    <script src="pay.js?v=20261024-deadline-5" defer></script>
+    <link rel="stylesheet" href="pay.css?v=20261026-switching-6">
+    <script src="pay.js?v=20261026-switching-6" defer></script>
 </head>
 <body>
 <header class="payment-header">
@@ -33,6 +33,7 @@
             <button id="next" type="button"><i class="layui-icon layui-icon-refresh" aria-hidden="true"></i> 换一个收款码</button>
         </div>
         <div class="payment-notices">
+            <p id="single-payment-note" class="notice" hidden>选择任意一个码完成付款即可，<strong class="caution">只需支付一次</strong>。</p>
             <p class="notice"><span id="restricted-note">如无法付款，请联系商家。</span><button id="switch-kind" class="inline-action" type="button" hidden></button></p>
             <p class="waiting">已付款请等待到账确认，<strong class="caution">请勿重复支付</strong>。</p>
             <p class="deadline-notice"><strong>请在倒计时结束前完成支付。</strong><span>超时订单将失效，请勿继续付款，请返回重新下单。</span></p>

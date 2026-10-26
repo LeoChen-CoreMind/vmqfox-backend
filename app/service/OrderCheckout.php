@@ -41,8 +41,12 @@ final class OrderCheckout
             }
             $id = date('YmdHis') . bin2hex(random_bytes(8));
             $cents = (int) bcmul($price, '100', 0);
+            $mode = QrcodeInput::normalizeDistinctionMode(
+                Db::name('setting')->where('vkey', 'payQf')->value('vvalue')
+            ) ?? 1;
+            $step = $mode === 2 ? -1 : 1;
             $allocated = false;
-            for ($attempt = 0; $attempt < 10 && $cents <= 99999999; $attempt++, $cents++) {
+            for ($attempt = 0; $attempt < 10 && $cents >= 1 && $cents <= 99999999; $attempt++, $cents += $step) {
                 $key = $cents . '-' . $values['type'];
                 $allocated = Db::execute('INSERT IGNORE INTO ' . QrcodeMigration::table('tmp_price')
                     . ' (price,oid) VALUES (?,?)', [$key, $id]) === 1;

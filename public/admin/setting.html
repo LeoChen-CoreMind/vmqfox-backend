@@ -45,9 +45,11 @@
         <label class="layui-form-label">区分方式</label>
         <div class="layui-input-block">
             <div class="layui-upload">
-                <select id="payQf" disabled>
+                <select id="payQf">
                     <option value="1">金额递增（冲突时增加 0.01 元）</option>
+                    <option value="2">金额递减（冲突时减少 0.01 元）</option>
                 </select>
+                <p style="margin-top:8px;color:#666;font-size:12px">仅影响新订单；同一支付方式金额冲突时调整，最低 0.01 元。已创建订单和切码后的应付金额不变。</p>
             </div>
         </div>
     </div>
@@ -120,7 +122,7 @@
                     QrAdmin.analyzeFiles([file], {
                         onItemDone: function (result) {
                             if (result.url) {
-                                $('#wximg').attr('src', "enQrcode?url="+encodeURIComponent(result.url));
+                                $('#wximg').attr('src', "enQrcode?url="+encodeURIComponent(result.url)).data('pending-url', result.url);
                                 layer.msg('处理成功');
                             } else {
                                 layer.msg('未识别到二维码内容');
@@ -148,7 +150,7 @@
                 }
                 layer.msg('处理成功');
 
-                $('#wximg').attr('src', "enQrcode?url="+res.data);
+                $('#wximg').attr('src', "enQrcode?url="+encodeURIComponent(res.data)).data('pending-url', res.data);
             }
             , error: function () {
                 layer.msg('上传失败');
@@ -171,7 +173,7 @@
                     QrAdmin.analyzeFiles([file], {
                         onItemDone: function (result) {
                             if (result.url) {
-                                $('#zfbimg').attr('src', "enQrcode?url="+encodeURIComponent(result.url));
+                                $('#zfbimg').attr('src', "enQrcode?url="+encodeURIComponent(result.url)).data('pending-url', result.url);
                                 layer.msg('处理成功');
                             } else {
                                 layer.msg('未识别到二维码内容');
@@ -199,7 +201,7 @@
                 }
                 layer.msg('处理成功');
 
-                $('#zfbimg').attr('src', "enQrcode?url="+res.data);
+                $('#zfbimg').attr('src', "enQrcode?url="+encodeURIComponent(res.data)).data('pending-url', res.data);
             }
             , error: function () {
                 layer.msg('上传失败');
@@ -247,38 +249,17 @@
             layer.msg("请输入创建的订单几分钟后失效");
             return;
         }
-        var wximg = $("#wximg").attr("src");
-        if (wximg=="" || !wximg){
-            layer.msg("请上传微信无金额的收款二维码");
+        if (payQf !== '1' && payQf !== '2') {
+            layer.msg('请选择金额递增或金额递减');
             return;
         }
-        var zfbimg = $("#zfbimg").attr("src");
-        if (zfbimg=="" || !zfbimg){
-            layer.msg("请上传支付宝无金额的收款二维码");
-            return;
-        }
-        wximg = wximg.replace(/enQrcode\?url=/g,"");
-        zfbimg = zfbimg.replace(/enQrcode\?url=/g,"");
-        $.post("index.php/admin/index/saveSetting","user="+user+"&pass="+pass+"&notifyUrl="+notifyUrl+"&returnUrl="+returnUrl+"&key="+key+"&wxpay="+wximg+"&zfbpay="+zfbimg+"&close="+close+"&payQf="+payQf,function (data) {
+        var params = {user:user, pass:pass, notifyUrl:notifyUrl, returnUrl:returnUrl, key:key, close:close, payQf:payQf};
+        var wxurl = $('#wximg').data('pending-url'), zfburl = $('#zfbimg').data('pending-url');
+        if (typeof wxurl === 'string') params.wxpay = wxurl;
+        if (typeof zfburl === 'string') params.zfbpay = zfburl;
+        $.post("index.php/admin/index/saveSetting",params,function (data) {
             if (data.code==1){
-                $.post("index.php/admin/index/getSettings",function (data) {
-                    console.log(data);
-                    if (data.code==1){
-                        $("#user").val(data.data.user);
-                        $("#pass").val("");
-                        $("#notifyUrl").val(data.data.notifyUrl);
-                        $("#returnUrl").val(data.data.returnUrl);
-                        $("#key").val(data.data.key);
-                        $("#close").val(data.data.close);
-
-                        if (data.data.wxpay!=""){
-                            $('#wximg').attr('src', "enQrcode?url="+data.data.wxpay);
-                        }
-                        if (data.data.zfbpay!=""){
-                            $('#zfbimg').attr('src', "enQrcode?url="+data.data.zfbpay);
-                        }
-                    }
-                });
+                getstate();
             }
             layer.msg(data.msg);
         });
@@ -287,7 +268,6 @@
 
     function getstate(){
         $.post("index.php/admin/index/getSettings",function (data) {
-            console.log(data);
             if (data.code==1){
                 $("#user").val(data.data.user);
                 $("#pass").val("");
@@ -295,15 +275,14 @@
                 $("#returnUrl").val(data.data.returnUrl);
                 $("#key").val(data.data.key);
                 $("#close").val(data.data.close);
-                $("#payQf").val('1');
+                $("#payQf").val(String(data.data.payQf) === '2' ? '2' : '1');
 
 
-                if (data.data.wxpay!=""){
-                    $('#wximg').attr('src', "enQrcode?url="+data.data.wxpay);
-                }
-                if (data.data.zfbpay!=""){
-                    $('#zfbimg').attr('src', "enQrcode?url="+data.data.zfbpay);
-                }
+                $('#wximg, #zfbimg').removeData('pending-url');
+                if (data.data.wxpay) $('#wximg').attr('src', "enQrcode?url="+encodeURIComponent(data.data.wxpay));
+                else $('#wximg').removeAttr('src');
+                if (data.data.zfbpay) $('#zfbimg').attr('src', "enQrcode?url="+encodeURIComponent(data.data.zfbpay));
+                else $('#zfbimg').removeAttr('src');
                 layui.form.render();
 
 

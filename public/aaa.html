@@ -136,7 +136,7 @@ function loadAdminPage(url) {
         adminPageRequest.abort();
     }
 
-    var request = $.ajax({url: url, type: "GET", dataType: "html"});
+    var request = $.ajax({url: url, type: "GET", dataType: "html", cache: false});
     adminPageRequest = request;
     request.done(function (html) {
         if (version !== adminPageVersion) {

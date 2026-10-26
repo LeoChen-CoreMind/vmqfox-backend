@@ -67,6 +67,12 @@ class QrcodeInput
         return in_array($type, [1, 2], true) ? $type : null;
     }
 
+    public static function normalizeDistinctionMode(mixed $mode): ?int
+    {
+        if (!is_string($mode) && !is_int($mode)) return null;
+        return in_array((string) $mode, ['1', '2'], true) ? (int) $mode : null;
+    }
+
     public static function normalizeSort(mixed $sort): string
     {
         $sort = trim((string) $sort);

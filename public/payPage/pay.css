@@ -51,10 +51,12 @@ main { max-width: 700px; margin: auto; padding: 20px 26px 28px; text-align: cent
 .image-error { margin: 8px 0; color: var(--danger); font-size: 13px; }
 .save-code { display: inline-flex; align-items: center; justify-content: center; gap: 7px; width: var(--qr-size); max-width: 100%; min-height: 42px; margin-top: 14px; padding: 8px 12px; border-radius: 5px; background: #f3f6f4; color: #3d4841; font-size: 13px; text-decoration: none; }
 .save-code:hover { background: #eaf0ec; color: var(--accent); }
+.screenshot-note { margin: 13px 0 0; color: var(--danger); font-size: 13px; font-weight: 700; line-height: 1.8; overflow-wrap: anywhere; }
+.screenshot-note strong { font-weight: 700; }
 .switcher { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 9px 0 0; }
-.switcher #next { color: var(--accent); font-size: 13px; }
+.switcher #next { color: var(--accent); background: #f3f6f4; font-size: 13px; font-weight: 600; border: 1px solid var(--line); }
 .icon-button { flex: 0 0 38px; width: 38px; height: 40px; padding: 0; color: var(--muted); }
-#position { min-width: 35px; color: #929994; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+#position { min-width: 35px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .rotation { display: inline-flex; align-items: center; gap: 7px; margin-top: 8px; color: var(--muted); font-size: 12px; cursor: pointer; }
 .rotation input { width: 15px; height: 15px; accent-color: var(--accent); }
 .payment-notices { margin: 18px auto 0; max-width: 450px; }
